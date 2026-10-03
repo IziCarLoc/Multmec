@@ -1,0 +1,525 @@
+{
+ "periodo": {
+  "inicio": "2025-08-25",
+  "fim": "2026-10-02",
+  "os_total": 1064
+ },
+ "mensal": {
+  "2025-08": {
+   "os": 22.0,
+   "faturamento": 11682.22,
+   "custo_pecas": 4565.77,
+   "mao_obra": 3210.0,
+   "insumos": 0.0,
+   "frete": 182.0,
+   "lucro_bruto": 6934.45,
+   "margem_pecas": 3724.45,
+   "ticket": 531.01,
+   "lucro_bruto_pct": 0.5936,
+   "os_sem_custo_nem_mo_pct": 0.0,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2025-09": {
+   "os": 76.0,
+   "faturamento": 56042.1,
+   "custo_pecas": 19782.62,
+   "mao_obra": 16150.0,
+   "insumos": 0.0,
+   "frete": 642.0,
+   "lucro_bruto": 35617.48,
+   "margem_pecas": 19467.48,
+   "ticket": 737.3961,
+   "lucro_bruto_pct": 0.6355,
+   "os_sem_custo_nem_mo_pct": 0.0,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2025-10": {
+   "os": 78.0,
+   "faturamento": 51452.27,
+   "custo_pecas": 13979.16,
+   "mao_obra": 11610.0,
+   "insumos": 0.0,
+   "frete": 397.0,
+   "lucro_bruto": 37076.11,
+   "margem_pecas": 25466.11,
+   "ticket": 659.6445,
+   "lucro_bruto_pct": 0.7206,
+   "os_sem_custo_nem_mo_pct": 0.0128,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2025-11": {
+   "os": 67.0,
+   "faturamento": 51239.84,
+   "custo_pecas": 13366.77,
+   "mao_obra": 12990.0,
+   "insumos": 600.0,
+   "frete": 490.0,
+   "lucro_bruto": 36783.07,
+   "margem_pecas": 23793.07,
+   "ticket": 764.7737,
+   "lucro_bruto_pct": 0.7179,
+   "os_sem_custo_nem_mo_pct": 0.0448,
+   "os_sem_mecanico_pct": 0.0149
+  },
+  "2025-12": {
+   "os": 89.0,
+   "faturamento": 50910.12,
+   "custo_pecas": 16923.98,
+   "mao_obra": 14750.0,
+   "insumos": 1022.0,
+   "frete": 617.0,
+   "lucro_bruto": 32347.14,
+   "margem_pecas": 17597.14,
+   "ticket": 572.0238,
+   "lucro_bruto_pct": 0.6354,
+   "os_sem_custo_nem_mo_pct": 0.0449,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-01": {
+   "os": 86.0,
+   "faturamento": 65004.83,
+   "custo_pecas": 20724.06,
+   "mao_obra": 19300.0,
+   "insumos": 807.0,
+   "frete": 674.0,
+   "lucro_bruto": 42799.77,
+   "margem_pecas": 23499.77,
+   "ticket": 755.8701,
+   "lucro_bruto_pct": 0.6584,
+   "os_sem_custo_nem_mo_pct": 0.0349,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-02": {
+   "os": 82.0,
+   "faturamento": 61216.26,
+   "custo_pecas": 18720.01,
+   "mao_obra": 16790.0,
+   "insumos": 1914.65,
+   "frete": 727.0,
+   "lucro_bruto": 39854.6,
+   "margem_pecas": 23064.6,
+   "ticket": 746.5398,
+   "lucro_bruto_pct": 0.651,
+   "os_sem_custo_nem_mo_pct": 0.0488,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-03": {
+   "os": 100.0,
+   "faturamento": 87611.43,
+   "custo_pecas": 19223.79,
+   "mao_obra": 17290.0,
+   "insumos": 2995.96,
+   "frete": 717.0,
+   "lucro_bruto": 64674.68,
+   "margem_pecas": 47384.68,
+   "ticket": 876.1143,
+   "lucro_bruto_pct": 0.7382,
+   "os_sem_custo_nem_mo_pct": 0.17,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-04": {
+   "os": 73.0,
+   "faturamento": 54931.52,
+   "custo_pecas": 17331.13,
+   "mao_obra": 9470.0,
+   "insumos": 2319.9,
+   "frete": 368.0,
+   "lucro_bruto": 34912.49,
+   "margem_pecas": 25442.49,
+   "ticket": 752.4866,
+   "lucro_bruto_pct": 0.6356,
+   "os_sem_custo_nem_mo_pct": 0.2055,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-05": {
+   "os": 77.0,
+   "faturamento": 73918.93,
+   "custo_pecas": 23809.88,
+   "mao_obra": 19765.0,
+   "insumos": 815.0,
+   "frete": 650.0,
+   "lucro_bruto": 48644.05,
+   "margem_pecas": 28879.05,
+   "ticket": 959.9861,
+   "lucro_bruto_pct": 0.6581,
+   "os_sem_custo_nem_mo_pct": 0.1688,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-06": {
+   "os": 85.0,
+   "faturamento": 87273.25,
+   "custo_pecas": 27276.13,
+   "mao_obra": 24000.0,
+   "insumos": 1560.0,
+   "frete": 562.0,
+   "lucro_bruto": 57875.12,
+   "margem_pecas": 33875.12,
+   "ticket": 1026.7441,
+   "lucro_bruto_pct": 0.6631,
+   "os_sem_custo_nem_mo_pct": 0.0941,
+   "os_sem_mecanico_pct": 0.0
+  },
+  "2026-07": {
+   "os": 88.0,
+   "faturamento": 77185.17,
+   "custo_pecas": 12736.16,
+   "mao_obra": 16750.0,
+   "insumos": 716.56,
+   "frete": 430.0,
+   "lucro_bruto": 63302.45,
+   "margem_pecas": 46552.45,
+   "ticket": 877.1042,
+   "lucro_bruto_pct": 0.8201,
+   "os_sem_custo_nem_mo_pct": 0.2841,
+   "os_sem_mecanico_pct": 0.0341
+  },
+  "2026-08": {
+   "os": 63.0,
+   "faturamento": 58334.96,
+   "custo_pecas": 9387.05,
+   "mao_obra": 14260.0,
+   "insumos": 1556.0,
+   "frete": 404.0,
+   "lucro_bruto": 46987.91,
+   "margem_pecas": 32727.91,
+   "ticket": 925.9517,
+   "lucro_bruto_pct": 0.8055,
+   "os_sem_custo_nem_mo_pct": 0.3651,
+   "os_sem_mecanico_pct": 0.9683
+  },
+  "2026-09": {
+   "os": 72.0,
+   "faturamento": 74259.03,
+   "custo_pecas": 19056.99,
+   "mao_obra": 19220.0,
+   "insumos": 3340.6,
+   "frete": 740.0,
+   "lucro_bruto": 51121.44,
+   "margem_pecas": 31901.44,
+   "ticket": 1031.3754,
+   "lucro_bruto_pct": 0.6884,
+   "os_sem_custo_nem_mo_pct": 0.4028,
+   "os_sem_mecanico_pct": 1.0
+  },
+  "2026-10": {
+   "os": 6.0,
+   "faturamento": 10730.84,
+   "custo_pecas": 696.99,
+   "mao_obra": 2980.0,
+   "insumos": 2091.8,
+   "frete": 60.0,
+   "lucro_bruto": 7882.05,
+   "margem_pecas": 4902.05,
+   "ticket": 1788.4733,
+   "lucro_bruto_pct": 0.7345,
+   "os_sem_custo_nem_mo_pct": 0.3333,
+   "os_sem_mecanico_pct": 1.0
+  }
+ },
+ "media_13_meses": {
+  "os": 79.69,
+  "faturamento": 65336.9,
+  "custo_pecas": 17870.59,
+  "mao_obra": 16334.23,
+  "insumos": 1357.51,
+  "frete": 570.62,
+  "lucro_bruto": 45538.18,
+  "margem_pecas": 29203.95,
+  "ticket": 822.0,
+  "lucro_bruto_pct": 0.69,
+  "os_sem_custo_nem_mo_pct": 0.14,
+  "os_sem_mecanico_pct": 0.16
+ },
+ "media_ultimos_6": {
+  "os": 76.33,
+  "faturamento": 70983.81,
+  "custo_pecas": 18266.22,
+  "mao_obra": 17244.17,
+  "insumos": 1718.01,
+  "frete": 525.67,
+  "lucro_bruto": 50473.91,
+  "margem_pecas": 33229.74,
+  "ticket": 928.94,
+  "lucro_bruto_pct": 0.71,
+  "os_sem_custo_nem_mo_pct": 0.25,
+  "os_sem_mecanico_pct": 0.33
+ },
+ "media_meses_confiaveis": {
+  "os": 79.6667,
+  "faturamento": 55977.57,
+  "custo_pecas": 17249.4333,
+  "mao_obra": 15265.0,
+  "insumos": 723.9417,
+  "frete": 591.1667,
+  "lucro_bruto": 37413.0283,
+  "margem_pecas": 22148.0283,
+  "ticket": 706.0413,
+  "lucro_bruto_pct": 0.6698,
+  "os_sem_custo_nem_mo_pct": 0.031,
+  "os_sem_mecanico_pct": 0.0025
+ },
+ "faturamento_total": 871792.77,
+ "ticket_mediano": 402.68,
+ "faixas_ticket": {
+  "<150": {
+   "os": 118.0,
+   "fat": 7063.14,
+   "pct_os": 11.09,
+   "pct_fat": 0.81
+  },
+  "150-300": {
+   "os": 292.0,
+   "fat": 65789.16,
+   "pct_os": 27.44,
+   "pct_fat": 7.55
+  },
+  "300-600": {
+   "os": 239.0,
+   "fat": 98886.79,
+   "pct_os": 22.46,
+   "pct_fat": 11.34
+  },
+  "600-1k": {
+   "os": 147.0,
+   "fat": 112648.81,
+   "pct_os": 13.82,
+   "pct_fat": 12.92
+  },
+  "1k-2k": {
+   "os": 168.0,
+   "fat": 231837.78,
+   "pct_os": 15.79,
+   "pct_fat": 26.59
+  },
+  "2k-5k": {
+   "os": 83.0,
+   "fat": 239726.75,
+   "pct_os": 7.8,
+   "pct_fat": 27.5
+  },
+  ">5k": {
+   "os": 17.0,
+   "fat": 115840.34,
+   "pct_os": 1.6,
+   "pct_fat": 13.29
+  }
+ },
+ "pareto_os": {
+  "top5pct": 0.2801,
+  "top10pct": 0.4213,
+  "top20pct": 0.6016,
+  "top50pct": 0.869
+ },
+ "markup_por_faixa_custo": {
+  "<100": {
+   "n": 351.0,
+   "markup": 1.8485,
+   "mediana": 1.8736
+  },
+  "100-300": {
+   "n": 175.0,
+   "markup": 1.1437,
+   "mediana": 0.9857
+  },
+  "300-700": {
+   "n": 133.0,
+   "markup": 0.9044,
+   "mediana": 0.7696
+  },
+  "700-1.500": {
+   "n": 47.0,
+   "markup": 0.8341,
+   "mediana": 0.7385
+  },
+  ">1.500": {
+   "n": 12.0,
+   "markup": 0.6346,
+   "mediana": 0.7052
+  }
+ },
+ "piso_de_markup": {
+  "60%": {
+   "os_afetadas_pct": 0.201949860724234,
+   "ganho_mensal": 1159.1802
+  },
+  "80%": {
+   "os_afetadas_pct": 0.31337047353760444,
+   "ganho_mensal": 2728.0172000000007
+  },
+  "100%": {
+   "os_afetadas_pct": 0.4052924791086351,
+   "ganho_mensal": 4908.911999999999
+  }
+ },
+ "locadora": {
+  "os": 277,
+  "faturamento": 150483.27,
+  "participacao": 0.1726,
+  "ticket_locadora": 543.26,
+  "ticket_demais": 916.53,
+  "lucro_bruto_pct_locadora": 0.598,
+  "lucro_bruto_pct_demais": 0.691,
+  "media_mensal": 11360.91,
+  "marcadas_locadora_ok": 302
+ },
+ "clientes": {
+  "distintos": 284,
+  "maior_cliente_sem_locadora_pct": 0.0387,
+  "top10_sem_locadora_pct": 0.1729,
+  "placas_distintas": 324,
+  "os_por_placa": 3.27
+ },
+ "mecanicos": {
+  "2025-08": {
+   "(SEM)": 0,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 10,
+   "MATEUS": 0,
+   "ROBSON": 12
+  },
+  "2025-09": {
+   "(SEM)": 0,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 33,
+   "MATEUS": 6,
+   "ROBSON": 37
+  },
+  "2025-10": {
+   "(SEM)": 0,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 38,
+   "MATEUS": 5,
+   "ROBSON": 35
+  },
+  "2025-11": {
+   "(SEM)": 1,
+   "DOUGLAS": 1,
+   "GABRIEL": 1,
+   "LUIZ": 26,
+   "MATEUS": 5,
+   "ROBSON": 33
+  },
+  "2025-12": {
+   "(SEM)": 0,
+   "DOUGLAS": 1,
+   "GABRIEL": 2,
+   "LUIZ": 46,
+   "MATEUS": 6,
+   "ROBSON": 34
+  },
+  "2026-01": {
+   "(SEM)": 0,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 19,
+   "MATEUS": 1,
+   "ROBSON": 66
+  },
+  "2026-02": {
+   "(SEM)": 0,
+   "DOUGLAS": 2,
+   "GABRIEL": 0,
+   "LUIZ": 18,
+   "MATEUS": 3,
+   "ROBSON": 59
+  },
+  "2026-03": {
+   "(SEM)": 0,
+   "DOUGLAS": 10,
+   "GABRIEL": 0,
+   "LUIZ": 8,
+   "MATEUS": 3,
+   "ROBSON": 79
+  },
+  "2026-04": {
+   "(SEM)": 0,
+   "DOUGLAS": 5,
+   "GABRIEL": 5,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 63
+  },
+  "2026-05": {
+   "(SEM)": 0,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 77
+  },
+  "2026-06": {
+   "(SEM)": 0,
+   "DOUGLAS": 1,
+   "GABRIEL": 0,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 84
+  },
+  "2026-07": {
+   "(SEM)": 3,
+   "DOUGLAS": 0,
+   "GABRIEL": 7,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 78
+  },
+  "2026-08": {
+   "(SEM)": 61,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 2
+  },
+  "2026-09": {
+   "(SEM)": 72,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 0
+  },
+  "2026-10": {
+   "(SEM)": 6,
+   "DOUGLAS": 0,
+   "GABRIEL": 0,
+   "LUIZ": 0,
+   "MATEUS": 0,
+   "ROBSON": 0
+  }
+ },
+ "dia_da_semana": {
+  "0": {
+   "media": 3371.51,
+   "dias": 54
+  },
+  "1": {
+   "media": 3470.57,
+   "dias": 51
+  },
+  "2": {
+   "media": 3727.07,
+   "dias": 52
+  },
+  "3": {
+   "media": 3093.05,
+   "dias": 50
+  },
+  "4": {
+   "media": 2320.04,
+   "dias": 52
+  },
+  "5": {
+   "media": 1488.93,
+   "dias": 13
+  }
+ },
+ "orcamentos": {
+  "qtd": 39,
+  "valor": 60644.43
+ },
+ "desconto_tabela_locadora": 0.25
+}

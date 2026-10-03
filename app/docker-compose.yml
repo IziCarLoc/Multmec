@@ -1,0 +1,15 @@
+# Uso: crie um arquivo .env ao lado (veja .env.example) e rode:  docker compose up -d --build
+services:
+  multmec:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"        # só o proxy (Caddy/Nginx) enxerga; HTTPS fica no proxy
+    env_file: .env
+    environment:
+      DB_PATH: /data/multmec.db
+      BACKUP_DIR: /data/backups
+    volumes:
+      - multmec-data:/data
+volumes:
+  multmec-data:

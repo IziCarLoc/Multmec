@@ -1,0 +1,10 @@
+# Dados reais da oficina (nomes de clientes, placas, valores): nunca versionar
+analise/dados/
+app/data/
+*.db
+*.db-journal
+*.sqlite
+.env
+node_modules/
+__pycache__/
+*.pyc
