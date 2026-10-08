@@ -343,3 +343,36 @@ test('fornecedor que sempre cobrou por um banco e aparece com outro: alerta méd
   const r4 = criarBoleto(db, { linha: linhaDigitavel({ banco: '341', valor: 55, vencimento: '2026-10-23' }), beneficiario_cnpj: CNPJ_FORNECEDOR, fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' }, HOJE, cfg());
   assert.ok(!r4.ocorrencias.some((o) => o.tipo === 'boleto_banco_novo'));     // voltou a um banco já usado
 });
+
+test('nota paga no ato (Pix/dinheiro) sem parcelas não cobra "nota sem boleto"; nota a prazo sem parcelas cobra', () => {
+  const { db, cfg, nota } = cenario();
+  nota(700, 200, [], { pag: '<detPag><tPag>17</tPag><vPag>200.00</vPag></detPag>', dhEmi: '2026-09-20T10:00:00-03:00' });
+  nota(701, 150, [], { dhEmi: '2026-09-20T10:00:00-03:00' });
+  const sem = ocorrencias(db, HOJE, cfg()).filter((o) => o.tipo === 'nota_sem_boleto');
+  assert.equal(sem.length, 1);
+  assert.match(sem[0].detalhe, /701/);
+  assert.equal(db.prepare("SELECT pago_no_ato FROM notas_compra WHERE numero = '700'").get().pago_no_ato, 1);
+});
+
+test('remessa em consignação (CFOP 5917) não espera boleto; protocolo cancelado entra como nota cancelada', () => {
+  const { db } = cenario();
+  const r = importarNotaXml(db, xmlNfe({ nNF: 710, cfop: '5917', itens: [{ cProd: 'K1', xProd: 'KIT', q: 1, vProd: 300 }] }));
+  assert.match(r.avisos.join(' '), /CONSIGNAÇÃO/);
+  assert.equal(db.prepare('SELECT finalidade FROM notas_compra WHERE id = ?').get(r.nota_id).finalidade, 'ajuste');
+  const c = importarNotaXml(db, xmlNfe({ nNF: 711, cStat: '101' }));
+  assert.equal(db.prepare('SELECT situacao FROM notas_compra WHERE id = ?').get(c.nota_id).situacao, 'cancelada');
+});
+
+test('boleto emitido por CNPJ autorizado no cadastro do fornecedor ou informado pela nota (CNPJReceb) não é grave; outro CNPJ continua grave', () => {
+  const { db, cfg, nota, boleto } = cenario();
+  nota(720, 400, [{ venc: '2026-10-20', valor: 400 }]);
+  const estranho = boleto(400, '2026-10-20', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA', beneficiario_cnpj: CNPJ_OUTRO });
+  assert.ok(estranho.ocorrencias.some((o) => o.tipo === 'boleto_beneficiario_diverge' && o.severidade === 'alta'));
+  db.prepare("UPDATE fornecedores SET beneficiarios_autorizados = ?").run(CNPJ_OUTRO);
+  assert.ok(!ocorrenciasDoBoleto(db, estranho.boleto_id, HOJE, cfg()).some((o) => o.tipo === 'boleto_beneficiario_diverge'));
+  db.prepare("UPDATE fornecedores SET beneficiarios_autorizados = NULL").run();
+  db.prepare("UPDATE notas_compra SET cnpj_receb = ?").run(CNPJ_OUTRO);
+  assert.ok(!ocorrenciasDoBoleto(db, estranho.boleto_id, HOJE, cfg()).some((o) => o.tipo === 'boleto_beneficiario_diverge'));
+  db.prepare("UPDATE notas_compra SET cnpj_receb = NULL").run();
+  assert.ok(ocorrenciasDoBoleto(db, estranho.boleto_id, HOJE, cfg()).some((o) => o.tipo === 'boleto_beneficiario_diverge'));
+});

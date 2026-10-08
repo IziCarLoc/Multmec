@@ -57,6 +57,12 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   }));
 
   // ------------------------------------------------------------ fornecedores
+  // outros CNPJs que podem receber os boletos do fornecedor (filial, banco, factoring), guardados separados por vírgula
+  const autorizadosDe = (v) => {
+    const lista = (Array.isArray(v) ? v : String(v ?? '').split(/[,;\s]+/)).map(normalizarCnpj).filter(Boolean);
+    for (const c of lista) if (!cnpjValido(c)) throw new V.ErroValidacao(`O CNPJ autorizado ${c} não passa na validação (confira os números).`);
+    return [...new Set(lista)].join(',') || null;
+  };
   const fornecedorDe = (b, atual = {}) => {
     const cnpj = normalizarCnpj(b.cnpj ?? atual.cnpj) || null;
     if (cnpj && !cnpjValido(cnpj)) throw new V.ErroValidacao('O CNPJ não passa na validação (confira os números).');
@@ -66,6 +72,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
       principal: b.principal === undefined ? (atual.principal ?? 0) : (b.principal ? 1 : 0),
       ativo: b.ativo === undefined ? (atual.ativo ?? 1) : (b.ativo ? 1 : 0),
       obs: V.texto(b.obs ?? atual.obs, { campo: 'a observação', max: 300 }),
+      beneficiarios_autorizados: autorizadosDe(b.beneficiariosAutorizados ?? atual.beneficiarios_autorizados),
     };
   };
   r.get('/fornecedores', wrap((req, res) => {
@@ -80,7 +87,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   r.post('/fornecedores', wrap((req, res) => {
     const f = fornecedorDe(req.body || {});
     try {
-      const id = Number(db.prepare('INSERT INTO fornecedores (nome, cnpj, principal, ativo, obs) VALUES (@nome, @cnpj, @principal, @ativo, @obs)').run(f).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO fornecedores (nome, cnpj, principal, ativo, obs, beneficiarios_autorizados) VALUES (@nome, @cnpj, @principal, @ativo, @obs, @beneficiarios_autorizados)').run(f).lastInsertRowid);
       res.status(201).json({ id, ...f });
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new V.ErroValidacao('Já existe fornecedor com esse nome ou CNPJ.');
@@ -92,7 +99,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'Fornecedor não encontrado.' });
     const f = fornecedorDe(req.body || {}, atual);
-    try { db.prepare('UPDATE fornecedores SET nome=@nome, cnpj=@cnpj, principal=@principal, ativo=@ativo, obs=@obs WHERE id=@id').run({ ...f, id }); } catch (e) {
+    try { db.prepare('UPDATE fornecedores SET nome=@nome, cnpj=@cnpj, principal=@principal, ativo=@ativo, obs=@obs, beneficiarios_autorizados=@beneficiarios_autorizados WHERE id=@id').run({ ...f, id }); } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new V.ErroValidacao('Já existe fornecedor com esse nome ou CNPJ.');
       throw e;
     }

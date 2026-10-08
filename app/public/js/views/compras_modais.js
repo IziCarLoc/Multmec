@@ -333,13 +333,14 @@ export function modalFornecedor(f0, aoMudar) {
     const form = h('form', { class: 'formulario' },
       campo('Nome', entrada('nome', f.nome, { required: true })),
       campo('CNPJ', entrada('cnpj', f.cnpj ?? '', { inputmode: 'text', placeholder: '00.000.000/0000-00' }), 'Com o CNPJ o sistema confere se o beneficiário do boleto é mesmo este fornecedor.'),
+      campo('Outros CNPJs que podem receber os boletos (opcional)', entrada('beneficiariosAutorizados', (f.beneficiarios_autorizados ?? '').split(',').filter(Boolean).map(cnpjBR).join(', '), { inputmode: 'text', placeholder: 'filial, banco ou factoring, separados por vírgula' }), 'Só cadastre depois de confirmar por telefone com o fornecedor. Sem isso, boleto em nome de outro CNPJ é tratado como grave.'),
       h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'principal', checked: !!f.principal }), ' Fornecedor principal'),
       f0 ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'ativo', checked: !!f.ativo }), ' Ativo') : null,
       h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const d = lerForm(form);
-      const corpo = { nome: d.nome, cnpj: d.cnpj, principal: d.principal };
+      const corpo = { nome: d.nome, cnpj: d.cnpj, principal: d.principal, beneficiariosAutorizados: d.beneficiariosAutorizados };
       if (f0) corpo.ativo = d.ativo;
       try { if (f0) await PUT(`/compras/fornecedores/${f.id}`, corpo); else await POST('/compras/fornecedores', corpo); toast('Fornecedor salvo.'); fechar(); aoMudar(); } catch (err) { toast(err.message, true); }
     });

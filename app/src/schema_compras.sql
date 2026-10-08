@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS fornecedores (
   cnpj TEXT UNIQUE,                              -- 14 caracteres (numérico ou alfanumérico), sem pontuação
   principal INTEGER NOT NULL DEFAULT 0,
   ativo INTEGER NOT NULL DEFAULT 1,
-  obs TEXT
+  obs TEXT,
+  beneficiarios_autorizados TEXT                 -- outros CNPJs que podem receber os boletos deste fornecedor (filial, banco, factoring), separados por vírgula
 );
 
 CREATE TABLE IF NOT EXISTS notas_compra (
@@ -18,6 +19,8 @@ CREATE TABLE IF NOT EXISTS notas_compra (
   serie TEXT NOT NULL DEFAULT '',
   data_emissao TEXT NOT NULL,
   valor_total REAL NOT NULL,                     -- vNF: o que realmente se paga
+  pago_no_ato INTEGER NOT NULL DEFAULT 0,        -- a nota informa pagamento imediato (dinheiro, cartão, Pix) e não traz parcelas: não deve vir boleto
+  cnpj_receb TEXT,                               -- CNPJ de quem recebe o boleto, quando a nota informa (detPag/card/CNPJReceb)
   valor_com_tributos REAL,                       -- vNFTot (IBS/CBS por fora), só quando difere de vNF: o boleto pode vir por qualquer um
   valor_produtos REAL, valor_frete REAL, valor_desconto REAL,
   cnpj_emitente TEXT, nome_emitente TEXT,

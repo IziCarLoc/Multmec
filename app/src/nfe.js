@@ -118,6 +118,14 @@ export function lerXmlNfe(xml) {
   if (fin === 3) avisos.push('Nota de AJUSTE: não gera cobrança. Se veio boleto com ela, desconfie.');
   if (fin === 4 || fin === 5) avisos.push('Nota de devolução/crédito: reduz o que se deve ao fornecedor; não gera boleto.');
   if (fin === 2 || fin === 6) avisos.push('Nota complementar/de débito: cobra um valor a mais sobre outra nota e pode vir com boleto próprio.');
+  // forma de pagamento: tPag 15 = boleto; dinheiro, cartão e Pix quitam no ato (a nota não deve vir com boleto)
+  const pagamentos = (inf.pag ?? []).flatMap((g) => g.detPag ?? []).map((p) => ({ tPag: texto(p.tPag), indPag: texto(p.indPag), cnpjReceb: normalizarCnpj(p.card?.CNPJReceb) || null }));
+  const IMEDIATO = new Set(['01', '02', '03', '04', '05', '10', '11', '12', '13', '17', '18', '19']);
+  const pagoNoAto = !duplicatas.length && pagamentos.length > 0 && pagamentos.every((p) => IMEDIATO.has(p.tPag) && p.indPag !== '1');
+  const cnpjReceb = pagamentos.find((p) => p.tPag === '15' && p.cnpjReceb)?.cnpjReceb ?? null;
+  if (pagoNoAto) avisos.push('A nota informa pagamento imediato (dinheiro, cartão ou Pix) e não traz parcelas: não deveria vir boleto dela.');
+  if (cnpjReceb && cnpjReceb !== cnpjEmit) avisos.push(`A nota informa que o boleto será recebido pelo CNPJ ${cnpjReceb} (diferente do emitente): confira.`);
+  if ((inf.det ?? []).some((d) => ['5917', '6917'].includes(String(d.prod?.CFOP)))) avisos.push('Remessa em CONSIGNAÇÃO: a cobrança vem depois, na nota de venda. Esta nota ainda não gera boleto.');
   const somaParcelas = duplicatas.reduce((a, d) => a + d.valor, 0);
   if (duplicatas.length && Math.abs(somaParcelas - valorNf) > 0.05 && !(valorComTributos !== null && Math.abs(somaParcelas - valorComTributos) <= 0.05)) {
     avisos.push(`As parcelas da nota somam ${r2(somaParcelas).toFixed(2)} e o total da nota é ${valorNf.toFixed(2)}. Confira antes de pagar.`);
@@ -134,7 +142,9 @@ export function lerXmlNfe(xml) {
     serie: chave.serie === '0' ? '' : chave.serie,
     data_emissao: dataIso(ide.dhEmi ?? ide.dEmi),
     natureza: texto(ide.natOp),
-    finalidade: FINALIDADE[Number(ide.finNFe)] ?? 'normal',
+    finalidade: (inf.det ?? []).some((d) => ['5917', '6917'].includes(String(d.prod?.CFOP))) ? 'ajuste' : (FINALIDADE[Number(ide.finNFe)] ?? 'normal'),
+    pago_no_ato: pagoNoAto ? 1 : 0,
+    cnpj_receb: cnpjReceb,
     valor_total: r2(valorNf),
     valor_com_tributos: valorComTributos !== null && Math.abs(valorComTributos - valorNf) > 0.05 ? r2(valorComTributos) : null,
     situacao,

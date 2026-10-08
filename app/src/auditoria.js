@@ -16,9 +16,9 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
   const add = (o) => out.push({ ...o, chave: `${o.tipo}:${o.entidade}:${o.id}`, boletos: o.boletos ?? [], notas: o.notas ?? [] });
   const aceites = new Map(db.prepare('SELECT * FROM auditoria_aceites').all().map((a) => [a.chave, a]));
 
-  const boletos = db.prepare(`SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj FROM boletos b
+  const boletos = db.prepare(`SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj, f.beneficiarios_autorizados AS fornecedor_autorizados FROM boletos b
       LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.situacao <> 'cancelado'`).all();
-  const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao, n.protocolo_status AS nota_protocolo, n.valor_total AS nota_total,
+  const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao, n.protocolo_status AS nota_protocolo, n.cnpj_receb, n.valor_total AS nota_total,
       d.valor AS dup_valor, d.vencimento AS dup_venc FROM conciliacoes c JOIN notas_compra n ON n.id = c.nota_id
       LEFT JOIN nota_duplicatas d ON d.id = c.duplicata_id`).all();
   const porBoleto = new Map();
@@ -71,8 +71,11 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
     }
     // beneficiário x emitente / fornecedor
     if (b.beneficiario_cnpj) {
+      // quem pode receber: o fornecedor, o emitente das notas ligadas, o recebedor que a nota informa e os CNPJs autorizados no cadastro
+      const autorizados = String(b.fornecedor_autorizados ?? '').split(',').filter(Boolean);
+      const permitidos = new Set([b.fornecedor_cnpj, ...cs.map((c) => c.cnpj_emitente), ...cs.map((c) => c.cnpj_receb), ...autorizados].filter(Boolean));
       const esperados = [...new Set([b.fornecedor_cnpj, ...cs.map((c) => c.cnpj_emitente)].filter(Boolean))];
-      const diverge = esperados.find((e) => e !== b.beneficiario_cnpj);
+      const diverge = permitidos.size && !permitidos.has(b.beneficiario_cnpj) ? esperados.find((e) => e !== b.beneficiario_cnpj) ?? [...permitidos][0] : null;
       if (diverge) {
         const mesmaRaiz = raiz(diverge) === raiz(b.beneficiario_cnpj);
         add({ tipo: 'boleto_beneficiario_diverge', severidade: mesmaRaiz ? 'media' : 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
@@ -147,7 +150,7 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
             titulo: prox.vencimento < hojeStr ? 'Parcela vencida sem boleto' : 'Parcela perto de vencer sem boleto',
             detalhe: `Nota ${n.numero} de ${n.fornecedor}: parcela de ${reais(prox.saldo)} ${prox.vencimento < hojeStr ? 'venceu' : 'vence'} em ${dataBR(prox.vencimento)} e nenhum boleto foi ligado. Se já foi paga de outro jeito (Pix, cartão, dinheiro), marque como conferida com o motivo.` });
         }
-      } else if (diasEntre(n.data_emissao, hojeStr) >= 3) {
+      } else if (diasEntre(n.data_emissao, hojeStr) >= 3 && !n.pago_no_ato) {
         add({ tipo: 'nota_sem_boleto', severidade: 'baixa', entidade: 'nota', id: n.id, notas: [n.id], valor: saldo, data: n.data_emissao,
           titulo: 'Nota sem boleto e sem parcelas', detalhe: `Nota ${n.numero} de ${n.fornecedor} (${reais(saldo)}) não tem boleto nem parcelas informadas. Se foi paga à vista (Pix, cartão, dinheiro), marque como conferida com o motivo.` });
       }

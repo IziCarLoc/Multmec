@@ -138,6 +138,27 @@ O DDA é o serviço dos bancos que lista **todos os boletos registrados emitidos
 - Peça ao gerente: *(1)* ativar o DDA para o CNPJ da oficina (e filiais); *(2)* se dá para **exportar** a lista (arquivo CNAB 240 de DDA ou relatório em planilha) para o sistema importar e comparar automaticamente. A oferta de exportação varia por banco: não confirmei.
 - Antes de pagar qualquer boleto no app do banco, **leia na tela de confirmação o nome e o CNPJ do beneficiário** e confira com o fornecedor; confira também se os **3 primeiros dígitos do código de barras** são o banco que a tela mostra.
 
+## 7b. Quando algo não bate (roteiro; confirme com advogado e contador)
+
+**Antes de pagar**
+1. Boleto com ocorrência grave: ligue para o fornecedor **num telefone que a oficina já tinha** (não o do boleto nem o do e-mail). Registre no motivo quem atendeu e o que foi combinado.
+2. Para nota grande ou fornecedor novo, consulte a situação da nota pela chave no portal nacional da NF-e (autorizada, cancelada, denegada) **antes de pagar**: nota pode ser cancelada depois que o boleto já circulou.
+3. Troca de banco ou de conta pedida **por e-mail ou WhatsApp** é o golpe mais comum entre empresas: só aceite com confirmação por telefone, e cadastre o novo CNPJ em *Outros CNPJs que podem receber os boletos* só depois disso.
+
+**Cobrança errada (valor a mais, nota cancelada, duplicidade)**
+1. Escreva ao fornecedor (e-mail com confirmação ou notificação), citando a **chave da nota**, a **linha digitável** do boleto, o valor e o vencimento contestados e o motivo. Guarde o protocolo.
+2. Peça segunda via correta e o cancelamento do boleto; se for o caso, a nota de devolução ou estorno (o cancelamento fiscal tem prazo curto).
+3. Se o fornecedor mandou **duplicata para aceite**, a recusa só vale por motivos previstos na Lei 5.474/68 (mercadoria não recebida, defeito ou diferença comprovados, divergência de prazo ou preço) e tem prazo de **10 dias** da apresentação, com a declaração por escrito. Quem só manda boleto, sem duplicata, não aciona esse prazo.
+4. Registre no sistema: marque o boleto como *contestado* ou cancele-o com o motivo.
+
+**Já paguei um boleto que não era do fornecedor**
+1. Ligue para o banco **na hora**, peça bloqueio/estorno e abra o protocolo. Boleto não tem o mecanismo de devolução do Pix; a chance de recuperar cai com o tempo.
+2. Faça boletim de ocorrência; guarde boleto, comprovante, e-mails/mensagens.
+3. Avise o fornecedor verdadeiro. Se o pagamento extingue a dívida com ele depende do caso (sinais de falsidade que a oficina podia ter visto pesam contra): **consulte um advogado**. Quem pagou indevidamente tem direito à restituição, mas precisa **provar o erro** (Código Civil, arts. 876 e 877).
+4. O CDC normalmente **não** se aplica à compra de peça para revenda/uso na atividade (a oficina não é "consumidora final"); o caminho é o Código Civil e a Lei de Duplicatas.
+
+**Guarda de documentos**: o prazo mínimo para o contribuinte guardar o XML é de 5 anos (CTN); estados e Receita adotaram 132 meses para a guarda do fisco. Uma política conservadora é guardar **11 anos**; confirme com o contador. Guarde também a OS, o romaneio ou foto da entrega e as mensagens: o XML prova o que o fornecedor declarou, não que a peça foi entregue.
+
 ## 8. Parâmetros (Metas)
 
 | Parâmetro (Metas > Conferência de compras) | Padrão | Para quê |

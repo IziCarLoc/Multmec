@@ -59,12 +59,12 @@ function inserirNota(db, n) {
   db.transaction(() => {
     notaId = Number(db.prepare(`INSERT INTO notas_compra (fornecedor_id, chave, numero, serie, data_emissao, valor_total, valor_produtos, valor_frete,
         valor_desconto, cnpj_emitente, nome_emitente, cnpj_destinatario, nome_destinatario, finalidade, protocolo_status, natureza, info_compl, origem, xml_hash, xml_gz,
-        valor_com_tributos, situacao)
+        valor_com_tributos, situacao, pago_no_ato, cnpj_receb)
         VALUES (@fornecedor_id, @chave, @numero, @serie, @data_emissao, @valor_total, @valor_produtos, @valor_frete, @valor_desconto, @cnpj_emitente,
         @nome_emitente, @cnpj_destinatario, @nome_destinatario, @finalidade, @protocolo_status, @natureza, @info_compl, @origem, @xml_hash, @xml_gz,
-        @valor_com_tributos, @situacao)`).run({
+        @valor_com_tributos, @situacao, @pago_no_ato, @cnpj_receb)`).run({
       fornecedor_id: fornecedor.id, chave: n.chave ?? null, numero: n.numero, serie: n.serie ?? '', data_emissao: n.data_emissao,
-      valor_com_tributos: n.valor_com_tributos ?? null, situacao: n.situacao ?? 'ativa',
+      valor_com_tributos: n.valor_com_tributos ?? null, situacao: n.situacao ?? 'ativa', pago_no_ato: n.pago_no_ato ? 1 : 0, cnpj_receb: n.cnpj_receb ?? null,
       valor_total: n.valor_total, valor_produtos: n.valor_produtos ?? null, valor_frete: n.valor_frete ?? null, valor_desconto: n.valor_desconto ?? null,
       cnpj_emitente: n.cnpj_emitente ?? null, nome_emitente: n.nome_emitente ?? null, cnpj_destinatario: n.cnpj_destinatario ?? null,
       nome_destinatario: n.nome_destinatario ?? null, finalidade: n.finalidade ?? 'normal', protocolo_status: n.protocolo_status ?? null,
@@ -94,9 +94,9 @@ function completarNotaManual(db, existente, n) {
   db.transaction(() => {
     db.prepare(`UPDATE notas_compra SET chave = ?, serie = ?, data_emissao = ?, valor_total = ?, valor_produtos = ?, valor_frete = ?, valor_desconto = ?,
         cnpj_emitente = ?, nome_emitente = ?, cnpj_destinatario = ?, nome_destinatario = ?, finalidade = ?, protocolo_status = ?, natureza = ?, info_compl = ?,
-        origem = 'xml', xml_hash = ?, xml_gz = ?, valor_com_tributos = ?, situacao = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
+        origem = 'xml', xml_hash = ?, xml_gz = ?, valor_com_tributos = ?, situacao = ?, pago_no_ato = ?, cnpj_receb = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
       n.cnpj_emitente ?? null, n.nome_emitente ?? null, n.cnpj_destinatario ?? null, n.nome_destinatario ?? null, n.finalidade ?? 'normal', n.protocolo_status ?? null,
-      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, n.valor_com_tributos ?? null, n.situacao === 'cancelada' ? 'cancelada' : existente.situacao, existente.id);
+      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, n.valor_com_tributos ?? null, n.situacao === 'cancelada' ? 'cancelada' : existente.situacao, n.pago_no_ato ? 1 : 0, n.cnpj_receb ?? null, existente.id);
     const parcelasLigadas = db.prepare('SELECT COUNT(*) AS c FROM conciliacoes WHERE nota_id = ? AND duplicata_id IS NOT NULL').get(existente.id).c;
     if (!parcelasLigadas) {
       db.prepare('DELETE FROM nota_duplicatas WHERE nota_id = ?').run(existente.id);

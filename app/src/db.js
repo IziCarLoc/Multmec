@@ -67,6 +67,9 @@ function migrar(db) {
   const colunas = (tabela) => db.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
   if (!colunas('notas_compra').includes('xml_gz')) db.exec('ALTER TABLE notas_compra ADD COLUMN xml_gz BLOB');
   if (!colunas('notas_compra').includes('valor_com_tributos')) db.exec('ALTER TABLE notas_compra ADD COLUMN valor_com_tributos REAL');
+  if (!colunas('notas_compra').includes('pago_no_ato')) db.exec('ALTER TABLE notas_compra ADD COLUMN pago_no_ato INTEGER NOT NULL DEFAULT 0');
+  if (!colunas('notas_compra').includes('cnpj_receb')) db.exec('ALTER TABLE notas_compra ADD COLUMN cnpj_receb TEXT');
+  if (!colunas('fornecedores').includes('beneficiarios_autorizados')) db.exec('ALTER TABLE fornecedores ADD COLUMN beneficiarios_autorizados TEXT');
   if (!colunas('vendas').includes('custo_pecas_auto')) {
     db.exec('ALTER TABLE vendas ADD COLUMN custo_pecas_auto INTEGER NOT NULL DEFAULT 0');   // 1 = custo veio das notas
   }
