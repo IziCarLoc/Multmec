@@ -18,19 +18,31 @@ export function criarAuth({ senha, senhaLancamento = null, segredo = randomBytes
   const memoria = new Map();                       // sem banco (testes): sid -> { exp, perfil }
   if (db) {
     db.exec("CREATE TABLE IF NOT EXISTS sessoes (sid TEXT PRIMARY KEY, exp INTEGER NOT NULL, perfil TEXT NOT NULL DEFAULT 'dono')");
+    const colunas = db.prepare('PRAGMA table_info(sessoes)').all().map((c) => c.name);
     // sessões de antes dos perfis (uma senha só) eram do dono
-    if (!db.prepare('PRAGMA table_info(sessoes)').all().some((c) => c.name === 'perfil')) db.exec("ALTER TABLE sessoes ADD COLUMN perfil TEXT NOT NULL DEFAULT 'dono'");
+    if (!colunas.includes('perfil')) db.exec("ALTER TABLE sessoes ADD COLUMN perfil TEXT NOT NULL DEFAULT 'dono'");
+    if (!colunas.includes('fp')) db.exec('ALTER TABLE sessoes ADD COLUMN fp TEXT');
   }
+  // impressão digital da senha de cada perfil: trocar ou tirar a senha derruba as sessões daquele perfil (sem guardar a senha)
+  const fpDe = (perfil) => {
+    const senhaDoPerfil = perfil === 'dono' ? senha : (perfil === 'lancamento' ? senhaLancamento : null);
+    return senhaDoPerfil ? createHmac('sha256', segredo).update(`perfil:${perfil}:${senhaDoPerfil}`).digest('hex').slice(0, 20) : null;
+  };
 
   const guardar = (sid, exp, perfil) => {
+    const fp = fpDe(perfil);
     if (db) {
       db.prepare('DELETE FROM sessoes WHERE exp < ?').run(agora());
-      db.prepare('INSERT INTO sessoes (sid, exp, perfil) VALUES (?, ?, ?)').run(sid, exp, perfil);
-    } else memoria.set(sid, { exp, perfil });
+      db.prepare('INSERT INTO sessoes (sid, exp, perfil, fp) VALUES (?, ?, ?, ?)').run(sid, exp, perfil, fp);
+    } else memoria.set(sid, { exp, perfil, fp });
   };
   const buscar = (sid) => {
-    const s = db ? db.prepare('SELECT exp, perfil FROM sessoes WHERE sid = ?').get(sid) : memoria.get(sid);
-    return s && s.exp > agora() ? s : null;
+    const s = db ? db.prepare('SELECT exp, perfil, fp FROM sessoes WHERE sid = ?').get(sid) : memoria.get(sid);
+    if (!s || !(s.exp > agora())) return null;
+    // perfil desconhecido não vira dono; e a sessão só vale enquanto a senha do perfil for a mesma (sessão antiga, de antes disto, só vale como dono)
+    if (s.perfil !== 'dono' && s.perfil !== 'lancamento') return null;
+    if (s.fp ? s.fp !== fpDe(s.perfil) : s.perfil !== 'dono') return null;
+    return s;
   };
   const apagar = (sid) => { if (db) db.prepare('DELETE FROM sessoes WHERE sid = ?').run(sid); else memoria.delete(sid); };
 
@@ -51,7 +63,7 @@ export function criarAuth({ senha, senhaLancamento = null, segredo = randomBytes
       const dados = JSON.parse(Buffer.from(payload, 'base64url').toString());
       if (!(dados.exp > agora()) || typeof dados.sid !== 'string') return null;
       const s = buscar(dados.sid);
-      return s ? { sid: dados.sid, perfil: s.perfil === 'lancamento' ? 'lancamento' : 'dono' } : null;
+      return s ? { sid: dados.sid, perfil: s.perfil } : null;
     } catch { return null; }
   }
   const lerCookie = (req) => {
@@ -84,7 +96,7 @@ export function criarAuth({ senha, senhaLancamento = null, segredo = randomBytes
         t.n += 1; t.ate = agora() + 10 * 60 * 1000; tentativas.set(ip, t);
         return res.status(401).json({ erro: 'Senha incorreta.' });
       }
-      tentativas.delete(ip);
+      // o contador de erros NÃO zera ao entrar: quem tem a senha de lançamento não pode usar o próprio login para "limpar" as tentativas de adivinhar a do dono
       const perfil = ehDono ? 'dono' : 'lancamento';
       const flags = `HttpOnly; SameSite=Lax; Path=/; Max-Age=${DURACAO_MS / 1000}${seguro(req) ? '; Secure' : ''}`;
       res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(emitir(perfil))}; ${flags}`);

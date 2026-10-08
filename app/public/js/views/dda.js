@@ -17,7 +17,8 @@ function modalImportar(empresas, aoMudar) {
       h('ol', { class: 'passos' },
         h('li', null, 'No internet banking da empresa, abra o ', h('b', null, 'DDA'), ' (Débito Direto Autorizado) e exporte a lista de boletos: arquivo de remessa/retorno CNAB 240, CSV ou planilha.'),
         h('li', null, 'Escolha o arquivo abaixo (ou cole o texto). Quem confere é o dono: o arquivo vem do banco, não de quem cadastra.'),
-        h('li', null, 'Repita toda semana: o sistema compara com os boletos cadastrados.')),
+        h('li', null, 'Repita toda semana (ou antes de cada rodada de pagamentos): o sistema compara com os boletos cadastrados.')),
+      h('p', { class: 'dica' }, 'O arquivo CNAB 240 é lido pelo leiaute da FEBRABAN (Itaú, Santander e Banrisul publicam o mesmo), mas ainda não foi testado com um arquivo real de banco. Só o CNAB, com o dono tendo conferido o fornecedor, dispensa a conferência no app do banco; CSV e texto servem para achar o que ninguém cadastrou. Se o arquivo não for lido, guarde-o e mande uma amostra.'),
       campo('Arquivo do banco', arquivo),
       texto,
       empresas.length ? campo('De quem é este DDA?', selecao('empresaId', [['', 'Da oficina'], ...empresas.filter((e) => e.ativo).map((e) => [e.id, e.nome])], ''), 'Se o arquivo traz o CNPJ no cabeçalho (CNAB 240), vale o do arquivo.') : null,
@@ -31,6 +32,7 @@ function modalImportar(empresas, aoMudar) {
       const r = await POST('/compras/dda/importar', { conteudo, arquivo: arq?.name ?? null, empresaId: d.empresaId ? Number(d.empresaId) : null });
       toast(`${r.qtd} boleto(s) no DDA (${r.novos} novos): ${r.ok} batem, ${r.semCadastro} sem cadastro, ${r.divergentes} divergentes.`, r.semCadastro + r.divergentes > 0);
       fechar(); aoMudar();
+      if (r.avisos?.length) modal('O que o sistema notou no arquivo', () => h('div', { class: 'formulario' }, r.avisos.slice(0, 20).map((a) => h('p', { class: 'aviso-texto' }, a))));
     }));
     return f;
   });
@@ -41,6 +43,7 @@ export async function abaDda(el, recarregar) {
   const sem = d.semCadastro;
   montar(el,
     h('div', { class: 'botoes-topo' }, h('span', { class: 'dica' }, 'O DDA é a lista que o banco tem de todo boleto emitido contra o CNPJ de vocês.'), h('button', { class: 'primario', onclick: () => modalImportar(empresas, recarregar) }, 'Importar DDA')),
+    d.empresasSemDda?.length && d.importacoes.length ? h('div', { class: 'alerta aviso' }, `Sem DDA importado: ${d.empresasSemDda.map((e) => e.nome).join(', ')}. Os boletos dessas empresas não são conferidos com o banco (isso não quer dizer que não existam).`) : null,
     d.importacoes.length ? h('section', { class: 'cartao' },
       h('div', { class: 'resumo-contas' },
         h('div', null, h('span', null, 'Batem'), h('b', { class: 'bom' }, d.conferidos)),

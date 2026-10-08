@@ -70,6 +70,32 @@ export function toast(msg, erro = false) {
 // Janelas empilhadas: o botão Voltar do celular fecha a de cima (cada janela ocupa uma entrada no histórico)
 const pilha = [];
 let ignorarPop = 0;
+let voltarPendente = false;
+// fechar uma janela "volta" no histórico; se outra janela abre logo em seguida (ex.: o resultado depois do formulário), ela aproveita a mesma entrada
+function agendarVoltar() {
+  voltarPendente = true;
+  setTimeout(() => { if (voltarPendente) { voltarPendente = false; ignorarPop += 1; history.back(); } }, 0);
+}
+/** Fecha todas as janelas abertas (ex.: a sessão expirou e a tela de login precisa aparecer). */
+export function fecharTodasAsJanelas() {
+  for (const el of document.querySelectorAll('.modal-fundo')) el.remove();
+  const n = pilha.length;
+  pilha.length = 0;
+  document.body.classList.remove('sem-rolagem');
+  if (n) { ignorarPop += n; history.go(-n); }
+}
+/** Copia um texto; sem permissão do navegador (página sem HTTPS), usa o caminho antigo e, se falhar, mostra o texto para copiar à mão. */
+export async function copiarTexto(texto) {
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(texto); return true; } } catch { /* tenta o outro caminho */ }
+  const area = h('textarea', { style: 'position:fixed;opacity:0' });
+  area.value = texto;
+  document.body.append(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  area.remove();
+  return ok;
+}
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
     if (ignorarPop > 0) { ignorarPop -= 1; return; }
@@ -90,7 +116,7 @@ export function modal(titulo, conteudo) {
     const pos = pilha.indexOf(registro);
     if (pos >= 0) pilha.splice(pos, 1);
     if (!pilha.length) document.body.classList.remove('sem-rolagem');
-    if (chamarHistorico) { ignorarPop += 1; history.back(); }
+    if (chamarHistorico) agendarVoltar();
   }
   const fechar = () => encerrar(true);
   const corpo = h('div', { class: 'modal-corpo' });
@@ -103,7 +129,7 @@ export function modal(titulo, conteudo) {
   document.body.append(fundo);
   document.body.classList.add('sem-rolagem');
   pilha.push(registro);
-  history.pushState({ modal: pilha.length }, '');
+  if (voltarPendente) { voltarPendente = false; history.replaceState({ modal: pilha.length }, ''); } else history.pushState({ modal: pilha.length }, '');
   const primeiro = caixa.querySelector('input:not([type=hidden]), select, textarea');
   if (primeiro && window.matchMedia('(min-width: 700px)').matches) primeiro.focus();
   fechar.corpo = corpo;

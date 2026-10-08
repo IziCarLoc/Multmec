@@ -4,7 +4,7 @@ import { lerConfig } from './db.js';
 import { r2, somarDias, diasEntre } from './util.js';
 import { formatarCnpj } from './documentos.js';
 import { ErroValidacao, motivoValido, MOTIVO_MINIMO } from './validar.js';
-import { ALOC_VALIDA, duplicatasComSaldo } from './compras.js';
+import { ALOC_VALIDA, duplicatasComSaldo, destinatarioCasa } from './compras.js';
 import { registrar } from './trilha.js';
 import { saldoDoAdiantamento } from './grupo.js';
 import { cruzarDda } from './dda.js';
@@ -15,15 +15,26 @@ const raiz = (c) => String(c ?? '').slice(0, 8);
 const ORDEM = { alta: 0, media: 1, baixa: 2 };
 const AUTORIZADA = new Set(['100', '150']);
 /** A nota prova que existe quando tem protocolo de autorização no XML, ou quando alguém consultou a chave no portal e viu "autorizada" com o mesmo valor. */
-const provaDaNota = (c) => (c.nota_origem !== 'manual' && AUTORIZADA.has(String(c.nota_protocolo)))
-  || (c.consulta_situacao === 'autorizada' && c.consulta_por === 'dono' && c.consulta_valor !== null && Math.abs(c.consulta_valor - c.nota_total) <= 0.05);
+const COM_XML_AUTORIZADO = (c) => c.nota_origem !== 'manual' && AUTORIZADA.has(String(c.nota_protocolo));
+/** Acima deste valor, XML importado por quem lança (o sistema não confere a assinatura digital) pede a consulta do dono no portal. */
+const LIMITE_XML_SEM_DONO = 2000;
+const valorConfere = (c) => c.consulta_valor !== null && Math.abs(c.consulta_valor - c.nota_total) <= 0.05;
+/** O destinatário que o portal mostrou (se mostrou) bate com a nota digitada, ou com a oficina ou uma empresa do grupo? Não mostrou: não há o que comparar. */
+const destinatarioDaConsultaOk = (c, donos) => !c.consulta_destinatario
+  || (c.cnpj_destinatario ? destinatarioCasa(c.consulta_destinatario, c.cnpj_destinatario) : donos.some((d) => destinatarioCasa(c.consulta_destinatario, d)));
+/** A nota prova que existe quando tem protocolo de autorização no XML, ou quando o DONO consultou a chave no portal e viu "autorizada" com o mesmo valor (e, se o portal mostrou, a mesma emissão e o mesmo destinatário). */
+const provaDaNota = (c, donos) => COM_XML_AUTORIZADO(c)
+  || (c.consulta_situacao === 'autorizada' && c.consulta_por === 'dono' && valorConfere(c)
+    && (!c.consulta_emissao || c.consulta_emissao === c.nota_emissao) && destinatarioDaConsultaOk(c, donos));
 
 /** Por que a nota ainda não prova nada, em palavras que a pessoa sabe resolver. */
 function motivoSemProva(c) {
   if (c.consulta_situacao === 'nao_encontrada') return `A chave da nota ${c.nota_numero} NÃO foi encontrada no portal da NF-e: a nota pode ser falsa ou a chave estar errada.`;
-  if (c.consulta_situacao === 'autorizada' && c.consulta_valor !== null && Math.abs(c.consulta_valor - c.nota_total) > 0.05) {
+  if (c.consulta_situacao === 'autorizada' && c.consulta_valor !== null && !valorConfere(c)) {
     return `O portal mostrou R$ ${Number(c.consulta_valor).toFixed(2)} para a nota ${c.nota_numero}, mas ela foi digitada com R$ ${Number(c.nota_total).toFixed(2)}. Um dos dois está errado.`;
   }
+  if (c.consulta_situacao === 'autorizada' && c.consulta_emissao && c.consulta_emissao !== c.nota_emissao) return `O portal mostrou a nota ${c.nota_numero} emitida em ${c.consulta_emissao.split('-').reverse().join('/')}, e ela foi digitada com outra data.`;
+  if (c.consulta_situacao === 'autorizada' && c.consulta_destinatario && c.consulta_por === 'dono') return `O portal mostrou a nota ${c.nota_numero} para o destinatário ${c.consulta_destinatario}, que não é a oficina nem empresa do grupo: pode ser nota de outro cliente do fornecedor.`;
   if (c.consulta_situacao === 'autorizada' && c.consulta_por !== 'dono') return `A nota ${c.nota_numero} foi consultada no portal por quem lança. Falta o dono repetir a consulta (leva um minuto) e registrar.`;
   return `A nota ${c.nota_numero} foi digitada à mão ou o XML não traz protocolo de autorização, então não prova nada. Importe o XML autorizado ou consulte a chave no portal da NF-e e registre a consulta na nota.`;
 }
@@ -42,7 +53,7 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
   const boletos = db.prepare(`SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj, f.beneficiarios_autorizados AS fornecedor_autorizados, f.confirmado_em AS fornecedor_confirmado
       FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.situacao NOT IN ('cancelado','contestado')`).all();
   const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.fornecedor_id AS nota_fornecedor, n.origem AS nota_origem, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao,
-      n.protocolo_status AS nota_protocolo, n.cnpj_receb, n.valor_total AS nota_total, n.consulta_situacao, n.consulta_valor, n.consulta_por, d.valor AS dup_valor, d.vencimento AS dup_venc
+      n.protocolo_status AS nota_protocolo, n.cnpj_receb, n.criado_por AS nota_criado_por, n.pago_no_ato AS nota_pago_no_ato, n.valor_total AS nota_total, n.data_emissao AS nota_emissao, n.consulta_situacao, n.consulta_valor, n.consulta_por, n.consulta_em, n.consulta_emissao, n.consulta_destinatario, d.valor AS dup_valor, d.vencimento AS dup_venc
       FROM conciliacoes c JOIN notas_compra n ON n.id = c.nota_id LEFT JOIN nota_duplicatas d ON d.id = c.duplicata_id`).all();
   const porBoleto = new Map();
   const porNota = new Map();
@@ -51,6 +62,7 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
     (porNota.get(c.nota_id) ?? porNota.set(c.nota_id, []).get(c.nota_id)).push(c);
   }
   const nome = (b) => b.fornecedor ?? 'Fornecedor não informado';
+  const comAdiantamento = new Set(db.prepare("SELECT DISTINCT boleto_id FROM adiantamentos WHERE origem = 'boleto' AND boleto_id IS NOT NULL").all().map((x) => x.boleto_id));
 
   if (!cfg.cnpjOficina) {
     add({ tipo: 'config_cnpj_oficina', severidade: 'media', entidade: 'config', id: 0, titulo: 'CNPJ da oficina não informado',
@@ -97,11 +109,54 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
         }
       }
       // a nota que "explica" o boleto precisa ter prova: XML com protocolo de autorização. Nota digitada à mão ou XML sem protocolo não prova nada.
-      const semProva = cs.filter((c) => !provaDaNota(c));
+      const donos = [cfg.cnpjOficina, ...grupo.keys()].filter(Boolean);
+      const semProva = cs.filter((c) => !provaDaNota(c, donos));
       if (semProva.length) {
-        add({ tipo: 'boleto_nota_sem_prova', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: semProva.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: semProva.map((c) => `${c.nota_id}:${c.consulta_situacao ?? ''}:${c.consulta_por ?? ''}:${c.consulta_valor ?? ''}`).join(','),
+        add({ tipo: 'boleto_nota_sem_prova', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: semProva.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: semProva.map((c) => `${c.nota_id}:${c.consulta_situacao ?? ''}:${c.consulta_por ?? ''}:${c.consulta_valor ?? ''}:${c.consulta_emissao ?? ''}:${c.consulta_destinatario ?? ''}`).join(','),
           titulo: 'Boleto ligado a nota sem comprovação',
           detalhe: `${resumoB}. ${semProva.map(motivoSemProva).join(' ')}` });
+      }
+      // a consulta no portal contradiz uma nota que tinha XML com protocolo (XML forjado ou chave de outra nota): vale o portal
+      const contradita = cs.filter((c) => COM_XML_AUTORIZADO(c) && c.consulta_situacao && (c.consulta_situacao === 'nao_encontrada' || (c.consulta_situacao === 'autorizada' && !valorConfere(c))));
+      if (contradita.length) {
+        add({ tipo: 'nota_contradita_pelo_portal', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: contradita.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: contradita.map((c) => `${c.nota_id}:${c.consulta_situacao}:${c.consulta_valor ?? ''}`).join(','),
+          titulo: 'O portal da NF-e contradiz a nota', detalhe: `${resumoB}. ${contradita.map(motivoSemProva).join(' ')} O arquivo XML da nota não prova nada contra o portal.` });
+      }
+      // o XML que quem lança importa não tem a assinatura digital conferida aqui: para boleto de valor alto, o dono confirma a nota no portal
+      if (b.situacao === 'aberto' && b.valor >= LIMITE_XML_SEM_DONO) {
+        const soDeQuemLanca = cs.filter((c) => COM_XML_AUTORIZADO(c) && c.nota_criado_por === 'lancamento' && !(c.consulta_situacao === 'autorizada' && c.consulta_por === 'dono' && valorConfere(c)));
+        if (soDeQuemLanca.length) {
+          add({ tipo: 'nota_xml_sem_conferencia_do_dono', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: soDeQuemLanca.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: soDeQuemLanca.map((c) => c.nota_id).join(','),
+            titulo: 'Nota por XML de quem lança, sem consulta do dono',
+            detalhe: `${resumoB}. A nota ${soDeQuemLanca.map((c) => c.nota_numero).join(', ')} veio de um XML importado por quem lança, e o sistema não confere a assinatura digital do arquivo. Para um valor desses, o dono consulta a chave no portal da NF-e (leva um minuto) e registra a consulta na nota.` });
+        }
+      }
+      // boleto ligado a nota que o próprio XML diz ter sido paga na hora (Pix, dinheiro, cartão): seria cobrança em dobro
+      const jaPagasNoAto = cs.filter((c) => c.nota_pago_no_ato);
+      if (jaPagasNoAto.length) {
+        add({ tipo: 'boleto_nota_paga_no_ato', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: jaPagasNoAto.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: jaPagasNoAto.map((c) => c.nota_id).join(','),
+          titulo: 'Boleto de nota que já foi paga na hora',
+          detalhe: `${resumoB}. A nota ${jaPagasNoAto.map((c) => c.nota_numero).join(', ')} informa pagamento imediato (Pix, dinheiro ou cartão) e não traz parcelas: não deveria haver boleto dela. Pode ser cobrança em dobro.` });
+      }
+      // quem lança viu "cancelada/denegada" no portal: não cancela sozinha (é o dono quem confere), mas o boleto não pode ser pago assim
+      const canceladaPendente = cs.filter((c) => c.nota_situacao === 'ativa' && (c.consulta_situacao === 'cancelada' || c.consulta_situacao === 'denegada') && c.consulta_por === 'lancamento');
+      if (canceladaPendente.length) {
+        add({ tipo: 'nota_consulta_cancelada_pendente', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: canceladaPendente.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: canceladaPendente.map((c) => `${c.nota_id}:${c.consulta_situacao}`).join(','),
+          titulo: 'Quem lança viu a nota CANCELADA no portal', detalhe: `${resumoB}. A nota ${canceladaPendente.map((c) => c.nota_numero).join(', ')} aparece como ${canceladaPendente[0].consulta_situacao === 'denegada' ? 'denegada' : 'cancelada'} na consulta registrada por quem lança. O dono repete a consulta no portal e registra (se confirmar, a nota é cancelada aqui). Não pague antes.` });
+      }
+      // nota sem XML cuja prova é só uma consulta antiga: nota autorizada ainda pode ser cancelada depois (em geral até 24 h, às vezes mais)
+      if (b.situacao === 'aberto' && b.vencimento <= somarDias(hojeStr, 3)) {
+        const antigas = cs.filter((c) => !COM_XML_AUTORIZADO(c) && c.consulta_situacao === 'autorizada' && c.consulta_em && diasEntre(c.consulta_em, hojeStr) > 2);
+        if (antigas.length) {
+          add({ tipo: 'nota_consulta_antiga', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: antigas.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: antigas.map((c) => `${c.nota_id}:${c.consulta_em}`).join(','),
+            titulo: 'Consulte a nota de novo antes de pagar', detalhe: `${resumoB}. A nota ${antigas.map((c) => c.nota_numero).join(', ')} foi consultada no portal em ${antigas.map((c) => dataBR(c.consulta_em)).join(', ')}. Uma nota autorizada ainda pode ser cancelada depois: consulte de novo no dia do pagamento (leva um minuto).` });
+        }
+      }
+      // nota digitada sem o destinatário: não dá para saber se foi emitida para a oficina ou para outro cliente do fornecedor
+      const semDestinatario = cs.filter((c) => c.nota_origem === 'manual' && !c.cnpj_destinatario);
+      if (semDestinatario.length) {
+        add({ tipo: 'nota_sem_destinatario', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: semDestinatario.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: semDestinatario.map((c) => c.nota_id).join(','),
+          titulo: 'Não se sabe para quem a nota foi emitida', detalhe: `${resumoB}. A nota ${semDestinatario.map((c) => c.nota_numero).join(', ')} foi digitada sem o CNPJ do destinatário (quem comprou). Informe o que está na DANFE, e, na consulta do portal, o destinatário que ele mostrar: nota de outro cliente do fornecedor parece igual.` });
       }
       const outroFornecedor = b.fornecedor_id ? cs.find((c) => c.nota_fornecedor !== b.fornecedor_id) : null;
       if (outroFornecedor) {
@@ -114,6 +169,27 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
         add({ tipo: 'boleto_doc_diverge', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: cs.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: b.numero_documento,
           titulo: 'O documento impresso no boleto não é o da nota', detalhe: `${resumoB}. O boleto diz "doc ${b.numero_documento}" e a nota ligada é a ${cs.map((c) => c.nota_numero).join(', ')}. Pode ser numeração do fornecedor, mas confirme.` });
       }
+    }
+    // notas de empresas diferentes no mesmo boleto: o custo de uma não é da outra e não há como dividir sozinho
+    const donosDasNotas = new Set(cs.map((c) => (c.cnpj_destinatario && grupo.has(c.cnpj_destinatario) ? `g${grupo.get(c.cnpj_destinatario).id}` : 'oficina')));
+    if (donosDasNotas.size > 1) {
+      add({ tipo: 'boleto_notas_de_empresas_misturadas', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: cs.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: [...donosDasNotas].sort().join(','),
+        titulo: 'Boleto cobre notas de empresas diferentes', detalhe: `${resumoB}. As notas ligadas foram emitidas para empresas diferentes (oficina e empresa do grupo). Separe o boleto: o dono divide o valor entre as empresas (Compras > Grupo > Registrar acerto) antes de pagar.` });
+    }
+    // ligação feita à mão por quem lança que o sistema não sugeriria (nem pelo valor, nem pela parcela, nem pelo número do documento)
+    const docsB = [...String(b.numero_documento ?? '').matchAll(/\d+/g)].map((m) => semZeros(m[0])).filter((x) => x.length >= 3);
+    const duvidosa = cs.filter((c) => c.origem === 'manual' && c.criado_por === 'lancamento'
+      && !(c.dup_valor != null && Math.abs(c.dup_valor - b.valor) <= tol) && !(Math.abs(c.nota_total - b.valor) <= tol) && !docsB.some((d) => d === semZeros(c.nota_numero)));
+    if (duvidosa.length) {
+      add({ tipo: 'ligacao_manual_sem_aderencia', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: duvidosa.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: duvidosa.map((c) => `${c.nota_id}:${c.valor}`).join(','),
+        titulo: 'Ligação à mão que o sistema não sugeriria',
+        detalhe: `${resumoB}. Quem lança ligou a nota ${duvidosa.map((c) => c.nota_numero).join(', ')} a este boleto, mas nem o valor, nem a parcela, nem o número do documento batem. Confira se a nota é mesmo deste boleto antes de pagar.` });
+    }
+    // boleto já pago pela oficina, mas que é de empresa do grupo (cadastrada depois): o dinheiro que a oficina adiantou ficou fora do acerto
+    if (b.situacao === 'pago' && !b.empresa_id && b.pagador_cnpj && grupo.has(b.pagador_cnpj) && !comAdiantamento.has(b.id)) {
+      add({ tipo: 'boleto_pago_de_empresa_do_grupo', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento, estado: b.pagador_cnpj,
+        titulo: `Boleto pago pela oficina é da ${grupo.get(b.pagador_cnpj).nome}`,
+        detalhe: `${resumoB}. O pagador impresso é a ${grupo.get(b.pagador_cnpj).nome}, mas o pagamento não entrou no acerto entre empresas. Registre em Compras > Grupo > Registrar acerto (a oficina pagou por ela) ou marque como conferido se já foi resolvido.` });
     }
     // beneficiário x emitente / fornecedor
     if (b.beneficiario_cnpj) {
@@ -353,6 +429,14 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
     }
   }
 
+  // peça entregue a outra empresa, cuja nota foi cancelada depois: o valor a receber já não tem base
+  for (const a of db.prepare(`SELECT a.id, a.valor, e.nome AS empresa, n.numero FROM adiantamentos a JOIN empresas_grupo e ON e.id = a.empresa_id JOIN alocacoes al ON al.id = a.alocacao_id
+      JOIN nota_itens i ON i.id = al.item_id JOIN notas_compra n ON n.id = i.nota_id WHERE a.origem = 'peca' AND n.situacao = 'cancelada'`).all()) {
+    if (saldoDoAdiantamento(db, a.id) <= 0.04) continue;
+    add({ tipo: 'adiantamento_de_nota_cancelada', severidade: 'media', entidade: 'adiantamento', id: a.id, valor: a.valor, estado: String(a.valor),
+      titulo: `A receber da ${a.empresa} por peças de nota cancelada`, detalhe: `A nota ${a.numero} foi cancelada, mas as peças dela ainda estão como "a receber" da ${a.empresa}. Confira se o valor ainda é devido e, se não for, desfaça o destino das peças.` });
+  }
+
   // dinheiro entre as empresas que está demorando para voltar
   const prazoAdiant = cfg.diasDevolucaoAdiantamento ?? 30;
   for (const a of db.prepare('SELECT a.*, e.nome AS empresa FROM adiantamentos a JOIN empresas_grupo e ON e.id = a.empresa_id').all()) {
@@ -406,7 +490,7 @@ export function resumoAuditoria(lista) {
   const emRisco = new Map();                                              // cada boleto conta uma vez só
   for (const o of abertas) {
     if (o.severidade !== 'alta' || !['boleto_sem_nota', 'boleto_valor_diverge', 'boleto_beneficiario_diverge', 'boleto_pagador_diverge', 'boleto_duplicado', 'boleto_mesmo_titulo',
-      'nota_cancelada_com_boleto', 'boleto_nota_sem_prova', 'boleto_fornecedor_diverge'].includes(o.tipo)) continue;
+      'nota_cancelada_com_boleto', 'boleto_nota_sem_prova', 'boleto_fornecedor_diverge', 'boleto_nota_paga_no_ato'].includes(o.tipo)) continue;
     for (const id of o.boletos) emRisco.set(id, Math.max(emRisco.get(id) ?? 0, o.valor ?? 0));
   }
   return {

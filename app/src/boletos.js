@@ -115,8 +115,8 @@ export function conciliar(db, boletoId, itens, origem = 'manual') {
   if (outras + novo > b.valor + tol) {
     throw new ErroValidacao(`As notas ligadas somariam R$ ${r2(outras + novo).toFixed(2)}, mais que o boleto (R$ ${b.valor.toFixed(2)}). Confira os valores.`);
   }
-  const ins = db.prepare(`INSERT INTO conciliacoes (boleto_id, nota_id, duplicata_id, valor, origem) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(boleto_id, nota_id) DO UPDATE SET valor = excluded.valor, duplicata_id = excluded.duplicata_id, origem = excluded.origem`);
+  const ins = db.prepare(`INSERT INTO conciliacoes (boleto_id, nota_id, duplicata_id, valor, origem, criado_por) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(boleto_id, nota_id) DO UPDATE SET valor = excluded.valor, duplicata_id = excluded.duplicata_id, origem = excluded.origem, criado_por = excluded.criado_por`);
   db.transaction(() => {
     let fornecedorDaNota = null;
     for (const it of itens) {
@@ -135,7 +135,7 @@ export function conciliar(db, boletoId, itens, origem = 'manual') {
       const jaLigado = db.prepare('SELECT COALESCE(SUM(valor), 0) AS v FROM conciliacoes WHERE nota_id = ? AND boleto_id <> ?').get(nota.id, boletoId).v;
       const limite = Math.max(nota.valor_total, nota.valor_com_tributos ?? 0);
       if (jaLigado + valor > limite + tol) throw new ErroValidacao(`A nota ${nota.numero} só tem R$ ${r2(Math.max(0, limite - jaLigado)).toFixed(2)} sem boleto. Confira o valor ligado.`);
-      ins.run(boletoId, nota.id, it.duplicata_id ?? null, valor, origem);
+      ins.run(boletoId, nota.id, it.duplicata_id ?? null, valor, origem, perfilAtual());
       fornecedorDaNota ??= nota.fornecedor_id;
     }
     if (!b.fornecedor_id && fornecedorDaNota) db.prepare('UPDATE boletos SET fornecedor_id = ? WHERE id = ?').run(fornecedorDaNota, boletoId);
@@ -182,13 +182,32 @@ function contaDoBoleto(db, { fornecedor, valor, vencimento, numeroDocumento }) {
   const iguais = db.prepare(`SELECT s.id FROM saidas s WHERE s.valor = ? AND s.vencimento = ? AND s.pago_em IS NULL AND s.recorrente_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM boletos b WHERE b.saida_id = s.id)`).all(valor, vencimento);
   if (iguais.length === 1) {
+    const antes = db.prepare('SELECT descricao, categoria_id, fornecedor, obs FROM saidas WHERE id = ?').get(iguais[0].id);
     db.prepare('UPDATE saidas SET descricao = ?, categoria_id = ?, fornecedor = COALESCE(?, fornecedor), obs = ? WHERE id = ?')
       .run(descricao, cat.id, fornecedor?.nome ?? null, 'conta já lançada, ligada ao boleto pela tela de Compras', iguais[0].id);
-    return { id: iguais[0].id, adotada: true };
+    return { id: iguais[0].id, adotada: true, antes: JSON.stringify(antes) };
   }
   const id = Number(db.prepare('INSERT INTO saidas (descricao, categoria_id, fornecedor, valor, vencimento, obs) VALUES (?, ?, ?, ?, ?, ?)')
     .run(descricao, cat.id, fornecedor?.nome ?? null, valor, vencimento, 'criado pela tela de Compras').lastInsertRowid);
-  return { id, adotada: false };
+  return { id, adotada: false, antes: null };
+}
+
+/**
+ * O boleto deixa de ser conta a pagar da oficina (cancelado, ou virou boleto de outra empresa).
+ * A conta que o próprio boleto criou é apagada; a que já existia (lançada à mão e adotada) volta a ser o que era, nunca é apagada.
+ */
+function soltarContaDoBoleto(db, b) {
+  if (!b.saida_id) return;
+  const conta = db.prepare('SELECT id, pago_em FROM saidas WHERE id = ?').get(b.saida_id);
+  if (!conta || conta.pago_em) return;
+  if (b.saida_adotada) {
+    const o = JSON.parse(b.saida_adotada);
+    db.prepare('UPDATE saidas SET descricao = ?, categoria_id = ?, fornecedor = ?, obs = ? WHERE id = ?').run(o.descricao, o.categoria_id, o.fornecedor, o.obs, conta.id);
+    registrar(db, 'conta_devolvida', 'boleto', b.id, { saida: conta.id, descricao: o.descricao });
+  } else {
+    db.prepare('DELETE FROM saidas WHERE id = ?').run(conta.id);
+    registrar(db, 'conta_removida', 'boleto', b.id, { saida: conta.id });
+  }
 }
 
 export function criarBoleto(db, d, hojeStr, cfg = lerConfig(db), { semOcorrencias = false } = {}) {
@@ -214,8 +233,12 @@ export function criarBoleto(db, d, hojeStr, cfg = lerConfig(db), { semOcorrencia
 
   let reativarId = null;
   if (leitura?.codigoBarras) {
-    const ja = db.prepare('SELECT id, situacao FROM boletos WHERE codigo_barras = ?').get(leitura.codigoBarras);
-    if (ja?.situacao === 'cancelado') reativarId = ja.id;                 // boleto cancelado e cadastrado de novo: reaproveita o registro
+    const ja = db.prepare('SELECT id, situacao, cancelado_por FROM boletos WHERE codigo_barras = ?').get(leitura.codigoBarras);
+    if (ja?.situacao === 'cancelado') {
+      // quem lança não reabre, só por cadastrar de novo, o boleto que o dono cancelou
+      if (ja.cancelado_por === 'dono' && perfilAtual() === 'lancamento') throw Object.assign(new ErroValidacao(`Este boleto foi cancelado pelo dono (nº ${ja.id}). Só o dono reabre.`), { boleto_id: ja.id });
+      reativarId = ja.id;                                                   // boleto cancelado e cadastrado de novo: reaproveita o registro
+    }
     else if (ja?.situacao === 'contestado') throw Object.assign(new ErroValidacao(`Este boleto está contestado (nº ${ja.id}). Reabra-o em Compras > Boletos se o fornecedor confirmou a cobrança.`), { boleto_id: ja.id });
     else if (ja) throw Object.assign(new ErroValidacao(`Este boleto já está cadastrado (nº ${ja.id}, ${ja.situacao}). Não pague duas vezes.`), { boleto_id: ja.id });
   }
@@ -244,15 +267,15 @@ export function criarBoleto(db, d, hojeStr, cfg = lerConfig(db), { semOcorrencia
     contaAdotada = conta.adotada;
     const campos = [fornecedor.id, leitura?.codigoBarras ?? null, leitura?.linhaDigitavel ?? null, leitura?.banco ?? null, valor, vencimento,
       d.numero_documento ? String(d.numero_documento).trim().slice(0, 40) : null, d.beneficiario_nome ? String(d.beneficiario_nome).trim().slice(0, 80) : null,
-      benefCnpj, pagadorCnpj, conta.id, empresaPagadora?.id ?? null, perfilAtual(), d.obs ? String(d.obs).slice(0, 300) : null];
+      benefCnpj, pagadorCnpj, conta.id, empresaPagadora?.id ?? null, perfilAtual(), conta.antes ?? null, d.obs ? String(d.obs).slice(0, 300) : null];
     if (reativarId) {
       db.prepare(`UPDATE boletos SET fornecedor_id = ?, codigo_barras = ?, linha_digitavel = ?, banco = ?, valor = ?, vencimento = ?, numero_documento = ?,
-          beneficiario_nome = ?, beneficiario_cnpj = ?, pagador_cnpj = ?, saida_id = ?, empresa_id = ?, criado_por = ?, obs = ?, situacao = 'aberto', aprovado_motivo = NULL, aprovado_em = NULL, conferido_banco_em = NULL WHERE id = ?`).run(...campos, reativarId);
+          beneficiario_nome = ?, beneficiario_cnpj = ?, pagador_cnpj = ?, saida_id = ?, empresa_id = ?, criado_por = ?, saida_adotada = ?, obs = ?, situacao = 'aberto', cancelado_por = NULL, aprovado_motivo = NULL, aprovado_em = NULL, conferido_banco_em = NULL WHERE id = ?`).run(...campos, reativarId);
       boletoId = reativarId;
       registrar(db, 'reabrir', 'boleto', boletoId, 'cadastrado de novo');
     } else {
       boletoId = Number(db.prepare(`INSERT INTO boletos (fornecedor_id, codigo_barras, linha_digitavel, banco, valor, vencimento, numero_documento,
-          beneficiario_nome, beneficiario_cnpj, pagador_cnpj, saida_id, empresa_id, criado_por, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...campos).lastInsertRowid);
+          beneficiario_nome, beneficiario_cnpj, pagador_cnpj, saida_id, empresa_id, criado_por, saida_adotada, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...campos).lastInsertRowid);
       registrar(db, 'cadastrar', 'boleto', boletoId, { valor, vencimento });
     }
   })();
@@ -304,10 +327,11 @@ export function reabrirBoleto(db, boletoId, hojeStr, cfg = lerConfig(db)) {
   if (b.situacao !== 'contestado' && b.situacao !== 'cancelado') throw new ErroValidacao('Só boleto contestado ou cancelado pode ser reaberto.');
   const fornecedor = b.fornecedor_id ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(b.fornecedor_id) : null;
   db.transaction(() => {
-    const conta = b.empresa_id ? { id: null } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
-    db.prepare("UPDATE boletos SET situacao = 'aberto', saida_id = ?, conferido_banco_em = NULL WHERE id = ?").run(conta.id, boletoId);
+    const conta = b.empresa_id ? { id: null, antes: null } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
+    db.prepare("UPDATE boletos SET situacao = 'aberto', saida_id = ?, saida_adotada = ?, cancelado_por = NULL, conferido_banco_em = NULL WHERE id = ?").run(conta.id, conta.antes ?? null, boletoId);
     registrar(db, 'reabrir', 'boleto', boletoId, `estava ${b.situacao}`);
   })();
+  aplicarEmpresaDoBoleto(db, boletoId);              // a empresa pode ter sido cadastrada (ou desativada) enquanto o boleto estava fora
   const auto = conciliarAutomatico(db, boletoId, cfg);
   return { auto, ocorrencias: ocorrenciasDoBoleto(db, boletoId, hojeStr, cfg) };
 }
@@ -332,11 +356,11 @@ export function aplicarEmpresaDoBoleto(db, boletoId) {
   const fornecedor = b.fornecedor_id ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(b.fornecedor_id) : null;
   db.transaction(() => {
     if (alvo !== null) {
-      db.prepare('UPDATE boletos SET empresa_id = ?, saida_id = NULL WHERE id = ?').run(alvo, boletoId);
-      if (b.saida_id) db.prepare('DELETE FROM saidas WHERE id = ? AND pago_em IS NULL').run(b.saida_id);
+      soltarContaDoBoleto(db, b);
+      db.prepare('UPDATE boletos SET empresa_id = ?, saida_id = NULL, saida_adotada = NULL WHERE id = ?').run(alvo, boletoId);
     } else {
-      const conta = b.saida_id ? { id: b.saida_id } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
-      db.prepare('UPDATE boletos SET empresa_id = NULL, saida_id = ? WHERE id = ?').run(conta.id, boletoId);
+      const conta = b.saida_id ? { id: b.saida_id, antes: b.saida_adotada } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
+      db.prepare('UPDATE boletos SET empresa_id = NULL, saida_id = ?, saida_adotada = ? WHERE id = ?').run(conta.id, conta.antes ?? null, boletoId);
     }
     registrar(db, 'empresa_do_boleto', 'boleto', boletoId, { de: b.empresa_id ?? null, para: alvo });
   })();
@@ -358,8 +382,10 @@ export function reatribuirEmpresas(db) {
  * 3) Valor pago diferente do valor do boleto exige motivo (juros, multa, desconto).
  */
 export function pagarBoleto(db, boletoId, { data, valor = null, aprovar = false, motivo = null, conferiuBanco = false, pagoPor = null }, hojeStr, cfg = lerConfig(db)) {
+  aplicarEmpresaDoBoleto(db, boletoId);              // o pagador (ou a nota) pode ter passado a ser de uma empresa do grupo depois do cadastro
   const b = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
   if (!b) throw new ErroValidacao('Boleto não encontrado.');
+  if (data && data > hojeStr) throw new ErroValidacao('A data do pagamento não pode ser futura: registre no dia em que o dinheiro sair.');
   if (b.situacao === 'pago') throw new ErroValidacao('Este boleto já foi pago.');
   if (b.situacao === 'cancelado') throw new ErroValidacao('Este boleto está cancelado.');
   if (b.situacao === 'contestado') throw new ErroValidacao('Este boleto está contestado. Reabra-o antes de pagar.');
@@ -397,7 +423,13 @@ export function pagarBoleto(db, boletoId, { data, valor = null, aprovar = false,
     db.prepare("UPDATE boletos SET situacao = 'pago', aprovado_motivo = ?, aprovado_em = ?, conferido_banco_em = COALESCE(conferido_banco_em, ?) WHERE id = ?")
       .run(registro, registro ? hojeStr : null, conferiuBanco ? hojeStr : null, boletoId);
     if (b.saida_id) db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = ? WHERE id = ?').run(pagoEm, valor ?? b.valor, b.saida_id);
-    if (empresa && pagoPor === 'oficina') adiantamentoDeBoleto(db, { empresa, boleto: b, valor: valor ?? b.valor, data: pagoEm });
+    if (empresa && pagoPor === 'oficina') {
+      // se as peças destas notas já foram entregues à empresa (a receber pelo custo delas), o mesmo gasto não pode virar a receber duas vezes
+      const jaPorPeca = db.prepare(`SELECT 1 FROM adiantamentos a JOIN alocacoes al ON al.id = a.alocacao_id JOIN nota_itens i ON i.id = al.item_id
+          JOIN conciliacoes c ON c.nota_id = i.nota_id WHERE a.origem = 'peca' AND c.boleto_id = ? LIMIT 1`).get(boletoId);
+      if (jaPorPeca) throw new ErroValidacao('As peças das notas deste boleto já estão como "a receber" da empresa (entrega de peças). Desfaça o destino das peças ou escolha "a empresa paga", senão o mesmo gasto contaria duas vezes.');
+      adiantamentoDeBoleto(db, { empresa, boleto: b, valor: valor ?? b.valor, data: pagoEm });
+    }
     registrar(db, graves.length || aceitasAltas.length ? 'pagar_liberado' : 'pagar', 'boleto', boletoId, { valor: valor ?? b.valor, conferiu_banco: !!conferiuBanco, motivo: registro, ...(empresa ? { empresa: empresa.nome, pago_por: pagoPor } : {}) });
   })();
   return { ok: true, liberado_com_ressalva: graves.length > 0 || aceitasAltas.length > 0 };
@@ -412,6 +444,7 @@ export function desfazerPagamentoBoleto(db, boletoId) {
     if (b.saida_id) db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(b.saida_id);
     registrar(db, 'desfazer_pagamento', 'boleto', boletoId, { motivo_anterior: b.aprovado_motivo });
   })();
+  aplicarEmpresaDoBoleto(db, boletoId);              // voltou a ser boleto em aberto: de quem é, agora?
   return true;
 }
 
@@ -422,9 +455,10 @@ export function cancelarBoleto(db, boletoId, situacao = 'cancelado', motivo = nu
   if (b.situacao === 'pago') throw new ErroValidacao('Boleto já pago: não dá para cancelar.');
   if (b.situacao === 'cancelado' || b.situacao === 'contestado') throw new ErroValidacao(`Este boleto já está ${b.situacao}.`);
   db.transaction(() => {
-    db.prepare('UPDATE boletos SET situacao = ?, obs = COALESCE(?, obs) WHERE id = ?').run(situacao, motivo ? String(motivo).trim().slice(0, 300) : null, boletoId);
+    db.prepare('UPDATE boletos SET situacao = ?, cancelado_por = ?, obs = COALESCE(?, obs) WHERE id = ?').run(situacao, perfilAtual(), motivo ? String(motivo).trim().slice(0, 300) : null, boletoId);
     db.prepare('DELETE FROM conciliacoes WHERE boleto_id = ?').run(boletoId);
-    if (b.saida_id) db.prepare('DELETE FROM saidas WHERE id = ? AND pago_em IS NULL').run(b.saida_id);
+    soltarContaDoBoleto(db, b);
+    db.prepare('UPDATE boletos SET saida_id = NULL, saida_adotada = NULL WHERE id = ?').run(boletoId);
     registrar(db, situacao === 'contestado' ? 'contestar' : 'cancelar', 'boleto', boletoId, { motivo });
   })();
 }

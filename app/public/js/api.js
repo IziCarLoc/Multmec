@@ -1,3 +1,4 @@
+import { fecharTodasAsJanelas } from './ui.js';
 let aoPrecisarLogin = () => {};
 // quem está usando: "dono" faz tudo; "lancamento" só cadastra notas e boletos (o servidor é quem barra, a tela só esconde o que não vale)
 export const sessao = { perfil: 'dono' };
@@ -11,7 +12,7 @@ export async function api(metodo, caminho, corpo) {
     body: metodo === 'GET' ? undefined : JSON.stringify(corpo ?? {}),
     credentials: 'same-origin',
   });
-  if (r.status === 401 && caminho !== '/login') { aoPrecisarLogin(); throw new Error('Entre com a senha.'); }
+  if (r.status === 401 && caminho !== '/login') { fecharTodasAsJanelas(); aoPrecisarLogin(); throw new Error('Entre com a senha.'); }
   let json = null;
   try { json = await r.json(); } catch { /* sem corpo */ }
   if (!r.ok) throw Object.assign(new Error(json?.erro || `Erro ${r.status}`), { status: r.status, dados: json });

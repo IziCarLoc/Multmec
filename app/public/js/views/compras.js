@@ -18,13 +18,13 @@ async function abaAuditoria(el, estado, recarregar) {
   montar(el,
     vazioTudo ? h('section', { class: 'cartao' }, h('h2', null, 'Como começar a conferir os boletos'),
       h('ol', { class: 'passos' },
-        h('li', null, 'Em ', h('b', null, 'Metas'), ', informe o CNPJ da oficina.'),
+        ehDono() ? h('li', null, 'Em ', h('b', null, 'Metas'), ', informe o CNPJ da oficina.') : null,
         h('li', null, 'Em ', h('b', null, 'Notas'), ', importe os XML que os fornecedores mandam por e-mail (ou lance a nota à mão).'),
         h('li', null, 'Em ', h('b', null, 'Boletos'), ', cadastre cada boleto que chegar (cole a linha digitável). O sistema procura a nota.'),
         h('li', null, 'Boleto sem nota fica GRAVE aqui e o pagamento é travado em Contas até você resolver.'),
         h('li', null, 'Em cada nota, diga em qual OS cada peça foi aplicada: assim você sabe o custo real da OS.')),
-      h('div', { class: 'botoes' }, h('a', { class: 'botao', href: '#/metas' }, 'Informar CNPJ'))) : null,
-    !resumo.cnpjOficinaConfigurado ? h('div', { class: 'alerta aviso' }, 'Informe o CNPJ da oficina em ', h('a', { href: '#/metas' }, 'Metas'), ' para o sistema conferir o destinatário das notas e o pagador dos boletos.') : null,
+      ehDono() ? h('div', { class: 'botoes' }, h('a', { class: 'botao', href: '#/metas' }, 'Informar CNPJ')) : null) : null,
+    !resumo.cnpjOficinaConfigurado ? h('div', { class: 'alerta aviso' }, ehDono() ? ['Informe o CNPJ da oficina em ', h('a', { href: '#/metas' }, 'Metas'), ' para o sistema conferir o destinatário das notas e o pagador dos boletos.'] : 'O CNPJ da oficina ainda não foi informado: peça ao dono para informar em Metas, senão o sistema não confere o destinatário das notas nem o pagador dos boletos.') : null,
     h('section', { class: 'cartao' },
       h('div', { class: 'resumo-contas' },
         h('div', null, h('span', null, 'Graves'), h('b', { class: a.alta ? 'ruim' : 'bom' }, a.alta)),
@@ -71,13 +71,14 @@ async function abaNotas(el, estado, recarregar) {
   const lista = await GET(`/compras/notas${q ? `?q=${encodeURIComponent(q)}` : ''}`);
   const busca = h('input', { type: 'search', placeholder: 'Buscar nº, fornecedor ou chave…', value: q });
   let t;
-  busca.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { estado.buscaNotas = busca.value; recarregar(); }, 350); });
+  busca.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { estado.buscaNotas = busca.value; estado.focoBusca = true; recarregar(); }, 350); });
   montar(el,
     h('div', { class: 'botoes-topo' }, busca, h('div', { class: 'acoes' }, h('button', { onclick: () => modalImportarXml(recarregar) }, 'Importar XML'), h('button', { class: 'primario', onclick: acao(() => modalNotaManual(recarregar)) }, '+ Nota sem XML'))),
     lista.length ? h('div', { class: 'lista' }, lista.map((n) => h('button', { class: 'linha-os', onclick: acao(() => modalNota(n.id, recarregar)) },
       h('div', null, h('b', null, `Nota ${n.numero} · ${n.fornecedor}`), n.situacao === 'cancelada' ? selo('cancelada', 'neutro') : n.finalidade === 'devolucao' ? selo('devolução', 'info') : null),
       h('div', { class: 'sub' }, dataBR(n.data_emissao), n.saldo > 0.05 && n.finalidade !== 'devolucao' && n.situacao === 'ativa' ? selo(`sem boleto ${brl0(n.saldo)}`, 'aviso') : null, n.sem_destino ? selo('peças sem destino', 'aviso') : null, n.origem === 'manual' ? selo('digitada', 'neutro') : null, n.empresa ? selo(`em nome da ${n.empresa}`, 'info') : null),
-      h('div', { class: 'valores' }, h('b', null, brl(n.valor_total)), h('span', null, n.chave ? 'XML' : 'manual'))))) : vazio('Nenhuma nota. Importe os XML que os fornecedores mandam por e-mail.'));
+      h('div', { class: 'valores' }, h('b', null, brl(n.valor_total)), h('span', null, n.origem === 'xml' ? 'XML' : (n.chave ? 'sem XML, com chave' : 'digitada')))))) : vazio('Nenhuma nota. Importe os XML que os fornecedores mandam por e-mail.'));
+  if (estado.focoBusca) { estado.focoBusca = false; busca.focus(); busca.setSelectionRange(busca.value.length, busca.value.length); }   // a busca recria a tela: devolve o cursor
 }
 
 async function abaFornecedores(el, recarregar) {

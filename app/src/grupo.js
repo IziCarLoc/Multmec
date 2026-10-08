@@ -5,6 +5,7 @@ import { normalizarCnpj, cnpjValido, formatarCnpj } from './documentos.js';
 import { ErroValidacao, dinheiro, data as dataValida, texto } from './validar.js';
 import { r2, diasEntre } from './util.js';
 import { registrar, perfilAtual } from './trilha.js';
+import { lerConfig } from './db.js';
 
 export const PAPEIS = ['locadora', 'socio', 'outra'];
 export const ROTULO_PAPEL = { locadora: 'Locadora', socio: 'Oficina do sócio', outra: 'Outra empresa' };
@@ -22,10 +23,11 @@ export function listarEmpresas(db) {
 export function empresaDoCnpj(db, cnpj) {
   const c = normalizarCnpj(cnpj);
   if (!c) return null;
+  if (c === lerConfig(db).cnpjOficina) return null;
   return db.prepare('SELECT * FROM empresas_grupo WHERE cnpj = ? AND ativo = 1').get(c) ?? null;
 }
 
-export function criarEmpresa(db, d, cfg = {}) {
+export function criarEmpresa(db, d, cfg = lerConfig(db)) {
   const nome = texto(d.nome, { campo: 'o nome da empresa', obrigatorio: true, max: 80 });
   const cnpj = normalizarCnpj(d.cnpj);
   if (!cnpj || !cnpjValido(cnpj)) throw new ErroValidacao('O CNPJ da empresa não passa na validação (confira os números).');
@@ -90,6 +92,7 @@ export function criarAdiantamentoManual(db, d, hojeStr) {
   const sentido = d.sentido === 'a_pagar' ? 'a_pagar' : 'a_receber';
   const valor = dinheiro(d.valor, { campo: 'o valor', obrigatorio: true, minimo: 0.01 });
   const data = dataValida(d.data || hojeStr, { campo: 'A data' });
+  if (data > hojeStr) throw new ErroValidacao('A data não pode ser futura: registre o acerto no dia em que acontecer.');
   const descricao = texto(d.descricao, { campo: 'a descrição', obrigatorio: true, max: 160 });
   // só A RECEBER mexe no caixa da oficina quando o dinheiro saiu da conta dela; A PAGAR ainda não saiu dinheiro (sai na baixa)
   const caixa = sentido === 'a_receber' && d.caixa === true ? 1 : 0;
@@ -135,6 +138,7 @@ export function baixarAdiantamento(db, id, d, hojeStr) {
   const valor = d.valor === undefined || d.valor === null || d.valor === '' ? falta : dinheiro(d.valor, { campo: 'o valor devolvido', obrigatorio: true, minimo: 0.01 });
   if (valor > falta + 0.05) throw new ErroValidacao(`Só faltam R$ ${falta.toFixed(2)} neste acerto.`);
   const data = dataValida(d.data || hojeStr, { campo: 'A data' });
+  if (data > hojeStr) throw new ErroValidacao('A data não pode ser futura: registre a devolução no dia em que o dinheiro voltar.');
   if (data < a.data) throw new ErroValidacao('A devolução não pode ser anterior ao dia em que o valor nasceu.');
   const bid = Number(db.prepare('INSERT INTO adiantamento_baixas (adiantamento_id, data, valor, obs) VALUES (?, ?, ?, ?)').run(id, data, Math.min(valor, falta), d.obs ? String(d.obs).slice(0, 200) : null).lastInsertRowid);
   registrar(db, 'adiantamento_baixa', 'empresa', a.empresa_id, { adiantamento: id, valor, data });

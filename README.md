@@ -28,7 +28,7 @@ cd app
 npm install
 npm run demo     # banco de demonstração com dados inventados
 npm start        # http://localhost:3000  (senha de desenvolvimento: multmec; para testar o perfil de lançamento: APP_PASSWORD_LANCAMENTO=lancar npm start)
-npm test         # 127 testes
+npm test         # 180 testes
 ```
 
 Com os dados reais: exporte a aba SERVIÇOS da planilha como CSV e use a tela **Importar** (ou `npm run importar -- servicos.csv --corte AAAA-MM-DD`).
@@ -48,6 +48,6 @@ python analise/gerar_relatorio.py analise/dados/servicos.csv   # grava docs/dado
 
 ## O que foi e o que não foi verificado
 
-- Testado: 127 testes automatizados (`app`), incluindo a leitura de NF-e e de boleto com vetores de manuais de banco e de programa independente, e a conferência de compras em navegador (celular 320 e 390 px), importação conferida contra a análise independente em Python, telas conferidas em celular e desktop com navegador de teste, subida em modo produção (recusa sem senha, cookie `Secure` atrás de proxy, 401 sem login, 415 para formulário).
+- Testado: 180 testes automatizados (`app`), incluindo a leitura de NF-e e de boleto com vetores de manuais de banco e de programa independente, e a conferência de compras em navegador (celular 320 e 390 px), importação conferida contra a análise independente em Python, telas conferidas em celular e desktop com navegador de teste, subida em modo produção (recusa sem senha, cookie `Secure` atrás de proxy, 401 sem login, 415 para formulário).
 - **Não testado aqui:** build da imagem Docker (o ambiente não tem daemon do Docker). O `Dockerfile` e o `docker-compose.yml` seguem o padrão, mas rode um build antes de contar com eles.
 - Dois links do Drive que você mandou não abriram para a conta conectada; veja [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md).

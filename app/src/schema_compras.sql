@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS notas_compra (
   consulta_em TEXT,                              -- consulta da chave no portal da NF-e, feita por uma pessoa (prova da nota sem XML)
   consulta_situacao TEXT CHECK (consulta_situacao IN ('autorizada','cancelada','denegada','nao_encontrada')),
   consulta_valor REAL,                           -- valor que o portal mostrou
+  consulta_emissao TEXT,                         -- data de emissão que o portal mostrou (opcional)
+  consulta_destinatario TEXT,                    -- destinatário que o portal mostrou, como aparece (pode vir com asteriscos; opcional)
   consulta_por TEXT,
   valor_com_tributos REAL,                       -- vNFTot (IBS/CBS por fora), só quando difere de vNF: o boleto pode vir por qualquer um
   valor_produtos REAL, valor_frete REAL, valor_desconto REAL,
@@ -101,6 +103,8 @@ CREATE TABLE IF NOT EXISTS boletos (
   conferido_banco_em TEXT,                       -- quando alguém confirmou no app do banco quem recebe (nome e CNPJ)
   empresa_id INTEGER REFERENCES empresas_grupo(id),   -- NULL = boleto da oficina; senão, de outra empresa do grupo
   criado_por TEXT,                               -- perfil que cadastrou (dono ou lancamento)
+  cancelado_por TEXT,                            -- perfil que cancelou (quem lança não reabre o que o dono cancelou)
+  saida_adotada TEXT,                            -- JSON com a conta que já existia e foi ligada a este boleto (para devolver como era, se o boleto sair)
   aprovado_motivo TEXT,                          -- liberado para pagar mesmo com ocorrência grave
   aprovado_em TEXT,
   obs TEXT,
@@ -115,6 +119,7 @@ CREATE TABLE IF NOT EXISTS conciliacoes (        -- boleto <-> nota (um boleto p
   duplicata_id INTEGER REFERENCES nota_duplicatas(id) ON DELETE SET NULL,
   valor REAL NOT NULL,                           -- quanto deste boleto paga esta nota
   origem TEXT NOT NULL DEFAULT 'auto' CHECK (origem IN ('auto','manual')),
+  criado_por TEXT,                               -- perfil que ligou
   criado_em TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (boleto_id, nota_id)
 );

@@ -1,4 +1,4 @@
-import { h, brl, brl0, pct, dataBR, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, numBR as num, paraCampo } from '../ui.js';
+import { h, brl, brl0, pct, dataBR, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, acao, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT, DEL, ehDono } from '../api.js';
 
 const FORMAS = [['', '—'], ['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['débito', 'Débito'], ['cartão', 'Cartão de crédito'], ['boleto', 'Boleto'], ['transferência', 'Transferência']];
@@ -100,11 +100,11 @@ async function detalhe(v0, aoMudar) {
         v.pecas_notas?.length ? v.pecas_notas.map((p) => h('div', { class: 'aloc' }, h('span', null, `${p.descricao} · nota ${p.nota} · ${p.fornecedor} · `, h('b', { class: p.situacao_boleto === 'sem boleto' ? 'ruim' : '' }, p.situacao_boleto)), h('b', null, brl(p.valor)))) : h('p', { class: 'dica' }, 'Nenhuma peça desta OS está ligada a uma nota de compra.'),
         divergente ? h('p', { class: 'ruim' }, `O custo digitado (${brl(v.custo_pecas)}) é diferente do que as notas somam (${brl(v.custo_notas)}).`) : null,
         h('div', { class: 'botoes' },
-          divergente ? h('button', { class: 'pequeno', onclick: async () => { await POST(`/compras/os/${v.id}/usar-custo-das-notas`, {}); toast('Custo atualizado pelas notas.'); mudou(); } }, 'Usar o custo das notas') : null,
+          divergente ? h('button', { class: 'pequeno', onclick: acao(async () => { await POST(`/compras/os/${v.id}/usar-custo-das-notas`, {}); toast('Custo atualizado pelas notas.'); mudou(); }) }, 'Usar o custo das notas') : null,
           h('button', { class: 'pequeno', onclick: () => escolherItemLivre(v, mudou) }, 'Ligar peça de uma nota…'))] : null,
       h('div', { class: 'botoes' },
-        v.situacao === 'orcamento' ? h('button', { class: 'primario', onclick: async () => { await POST(`/vendas/${v.id}/aprovar`, {}); toast('Orçamento aprovado: virou OS concluída.'); fechar(); aoMudar(); } }, 'Aprovar orçamento') : null,
-        v.aberto > 0.004 ? h('button', { class: 'primario', onclick: async () => { await POST(`/vendas/${v.id}/receber`, {}); toast('Recebimento registrado.'); fechar(); aoMudar(); } }, `Recebi ${brl(v.aberto)} hoje`) : null,
+        v.situacao === 'orcamento' ? h('button', { class: 'primario', onclick: acao(async () => { await POST(`/vendas/${v.id}/aprovar`, {}); toast('Orçamento aprovado: virou OS concluída.'); fechar(); aoMudar(); }) }, 'Aprovar orçamento') : null,
+        v.aberto > 0.004 ? h('button', { class: 'primario', onclick: acao(async () => { await POST(`/vendas/${v.id}/receber`, {}); toast('Recebimento registrado.'); fechar(); aoMudar(); }) }, `Recebi ${brl(v.aberto)} hoje`) : null,
         v.situacao !== 'saldo' ? h('button', { onclick: () => { fechar(); formVenda(v, aoMudar); } }, 'Editar') : null));
   });
 }

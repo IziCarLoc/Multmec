@@ -72,8 +72,10 @@ function migrar(db) {
   if (!colunas('notas_compra').includes('cnpj_receb')) db.exec('ALTER TABLE notas_compra ADD COLUMN cnpj_receb TEXT');
   if (!colunas('fornecedores').includes('beneficiarios_autorizados')) db.exec('ALTER TABLE fornecedores ADD COLUMN beneficiarios_autorizados TEXT');
   const novas = (tabela, lista) => { for (const [nome, def] of lista) if (!colunas(tabela).includes(nome)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${nome} ${def}`); };
-  novas('boletos', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT']]);
-  novas('notas_compra', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT'], ['consulta_em', 'TEXT'], ['consulta_situacao', 'TEXT'], ['consulta_valor', 'REAL'], ['consulta_por', 'TEXT']]);
+  novas('boletos', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT'], ['cancelado_por', 'TEXT'], ['saida_adotada', 'TEXT']]);
+  novas('conciliacoes', [['criado_por', 'TEXT']]);
+  novas('dda_titulos', [['formato', 'TEXT']]);
+  novas('notas_compra', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT'], ['consulta_em', 'TEXT'], ['consulta_situacao', 'TEXT'], ['consulta_valor', 'REAL'], ['consulta_por', 'TEXT'], ['consulta_emissao', 'TEXT'], ['consulta_destinatario', 'TEXT']]);
   novas('auditoria_log', [['perfil', 'TEXT']]);
   reconstruirAlocacoes(db);
   if (!colunas('nota_itens').includes('info_adic')) db.exec('ALTER TABLE nota_itens ADD COLUMN info_adic TEXT');

@@ -51,7 +51,11 @@ async function desenhar() {
   document.title = `${rota.titulo} · Multmec`;
   for (const a of document.querySelectorAll('[data-rota]')) a.classList.toggle('ativo', a.dataset.rota === caminho);
   const conteudo = document.getElementById('conteudo');
-  try { await rota.vista(conteudo, estado); } catch (e) { if (e.message !== 'Entre com a senha.') montar(conteudo, h('p', { class: 'vazio ruim' }, e.message)); }
+  if (!conteudo) return;                              // saiu do sistema: a tela de login está montada
+  // cada desenho tem o seu próprio recipiente: uma aba lenta que responde depois não sobrescreve a aba em que a pessoa está agora
+  const alvo = h('div');
+  conteudo.replaceChildren(alvo);
+  try { await rota.vista(alvo, estado); } catch (e) { if (e.message !== 'Entre com a senha.') montar(alvo, h('p', { class: 'vazio ruim' }, e.message)); }
   window.scrollTo(0, 0);
 }
 

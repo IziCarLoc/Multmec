@@ -36,7 +36,7 @@ Cenários: **baixo ~R$ 86 mil, base ~R$ 93 mil, alto ~R$ 103 mil**. Sendo honest
 
 ## O sistema (já funciona)
 
-`app/`: painel com a meta e a projeção do mês, cascata do mês, vendas (lançar OS pelo celular), contas a pagar com modelos fixos, clientes a prazo com **trava, extrato e texto de cobrança pronto para WhatsApp**, metas com simulador, relatórios e **importação da sua planilha** (com correção das datas erradas). Segurança de produção, 127 testes e backup do banco. Detalhes e limitações em `05-sistema.md`; como colocar no ar em `08-hospedagem.md`.
+`app/`: painel com a meta e a projeção do mês, cascata do mês, vendas (lançar OS pelo celular), contas a pagar com modelos fixos, clientes a prazo com **trava, extrato e texto de cobrança pronto para WhatsApp**, metas com simulador, relatórios e **importação da sua planilha** (com correção das datas erradas). Segurança de produção, 180 testes e backup do banco. Detalhes e limitações em `05-sistema.md`; como colocar no ar em `08-hospedagem.md`.
 
 **Novo: conferência de compras** (`09-conciliacao-compras.md`). Você importa o XML da nota e cadastra o boleto pela linha digitável; o sistema liga **nota × boleto × peça × OS**, avisa de boleto sem nota, de beneficiário ou pagador diferente, de valor a mais e de duplicidade, e **pede justificativa antes de pagar** boleto com problema grave. Antes de pagar, o sistema exige conferir **no app do banco** quem recebe. Limite honesto: o CNPJ de quem recebe não vai no código de barras, então alguém precisa lê-lo no PDF ou no app do banco (ou conferir pelo DDA do banco); e o sistema não consulta a SEFAZ sozinho.
 

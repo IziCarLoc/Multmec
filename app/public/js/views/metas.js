@@ -1,6 +1,7 @@
 import { h, brl0, pct, vazio, carregando, toast, campo, entrada, selecao, lerForm, montar, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT } from '../api.js';
 
+const pctTxt = (v) => String(Number((v * 100).toFixed(4))).replace('.', ',');
 const perc = (v) => (v === '' ? null : Number(String(v).replace(',', '.')) / 100);
 
 export async function metas(el) {
@@ -15,9 +16,9 @@ export async function metas(el) {
       campo('Meta de faturamento do mês (R$)', entrada('metaFaturamento', cfg.metaFaturamento, { inputmode: 'decimal' })),
       campo('Retirada desejada dos sócios (R$/mês)', entrada('retiradaSociosMeta', cfg.retiradaSociosMeta, { inputmode: 'decimal' }))),
     h('div', { class: 'tres' },
-      campo('Impostos sobre a venda (%)', entrada('impostoPct', (cfg.impostoPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'Simples: ~9% a 10%. Confirmar com o contador'),
-      campo('Taxas de maquininha (%)', entrada('taxaCartaoPct', (cfg.taxaCartaoPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'média sobre todo o faturamento'),
-      campo('Reserva da oficina (%)', entrada('reservaPct', (cfg.reservaPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'guardado todo mês')),
+      campo('Impostos sobre a venda (%)', entrada('impostoPct', pctTxt(cfg.impostoPct), { inputmode: 'decimal' }), 'Simples: ~9% a 10%. Confirmar com o contador'),
+      campo('Taxas de maquininha (%)', entrada('taxaCartaoPct', pctTxt(cfg.taxaCartaoPct), { inputmode: 'decimal' }), 'média sobre todo o faturamento'),
+      campo('Reserva da oficina (%)', entrada('reservaPct', pctTxt(cfg.reservaPct), { inputmode: 'decimal' }), 'guardado todo mês')),
     h('div', { class: 'duas' },
       campo('Sábado conta como dia útil?', selecao('sabadoConta', [[0, 'Não'], [0.5, 'Meio dia'], [1, 'Dia inteiro']], cfg.sabadoConta)),
       campo('Travar cliente a prazo após (dias de atraso)', entrada('diasTrava', cfg.diasTrava, { type: 'number', min: 0 }))),
@@ -32,7 +33,7 @@ export async function metas(el) {
       campo('Dias para dar destino às peças', entrada('diasNotaSemDestino', cfg.diasNotaSemDestino, { type: 'number', min: 0 }))),
     h('div', { class: 'duas' },
       campo('Diferença aceita no valor (R$)', entrada('toleranciaValor', cfg.toleranciaValor, { inputmode: 'decimal' }), 'arredondamento de centavos'),
-      campo('Alerta de preço acima de (%)', entrada('variacaoPrecoPct', (cfg.variacaoPrecoPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'sobre as últimas compras do mesmo item')),
+      campo('Alerta de preço acima de (%)', entrada('variacaoPrecoPct', pctTxt(cfg.variacaoPrecoPct), { inputmode: 'decimal' }), 'sobre as últimas compras do mesmo item')),
     campo('Dias para a outra empresa do grupo devolver o que a oficina pagou', entrada('diasDevolucaoAdiantamento', cfg.diasDevolucaoAdiantamento, { type: 'number', min: 1 }), 'Passou disso, aparece o aviso em Compras > Grupo'),
     h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
   f.addEventListener('submit', async (e) => {

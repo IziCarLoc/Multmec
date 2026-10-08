@@ -265,7 +265,7 @@ test('mexeram no valor do código de barras mantendo o campo livre: o título é
     const det = (await dono('GET', `/api/compras/boletos/${b.boleto_id}`)).json;
     const oc = det.ocorrencias.find((o) => o.tipo === 'dda_diverge');
     assert.ok(oc, 'devia acusar divergência');
-    assert.match(oc.detalhe, /valor: cadastrado 3000\.00, banco 300\.00/);
+    assert.match(oc.detalhe, /valor: cadastrado R\$\s3\.000,00, banco R\$\s300,00/);
     assert.equal(det.veredito.nivel, 'ruim');
     assert.notEqual(det.boleto.dda, 'confirmado');
     const lista = (await dono('GET', '/api/compras/dda')).json;

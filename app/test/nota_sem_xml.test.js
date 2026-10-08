@@ -42,7 +42,16 @@ test('leitor de DANFE: chave em blocos ou solta, número, série, mês, emitente
   assert.equal(r.dataEmissao, '2026-10-01');
   assert.equal(r.valorTotal, 1050);
   assert.deepEqual(r.valoresPossiveis, [1050, 1000, 50, 0]);
-  assert.deepEqual(r.avisos, []);
+  // só uma fonte para o total (o maior número do bloco): o sistema pede para conferir; com o canhoto confirmando, não pede
+  assert.equal(r.valorConfirmado, false);
+  assert.deepEqual(r.avisos.map((a) => a.slice(0, 20)), ['Confira o "VALOR TOT']);
+  const comCanhoto = lerTextoDanfe(`RECEBEMOS DE DISTRIBUIDORA TESTE OS PRODUTOS. EMISSÃO: 01/10/2026 VALOR TOTAL: R$ 1.050,00\n${DANFE}`);
+  assert.equal(comCanhoto.valorConfirmado, true);
+  assert.deepEqual(comCanhoto.avisos, []);
+  // destinatário pessoa física: não pega o CNPJ do transportador como se fosse de quem comprou
+  const cpf = lerTextoDanfe(DANFE.replace('OFICINA TESTE LTDA 45.723.174/0001-10', 'JOAO DA SILVA 123.456.789-09').replace('TRANSPORTADOR / VOLUMES TRANSPORTADOS', 'TRANSPORTADOR / VOLUMES TRANSPORTADOS\nTRANSPORTES X 27.865.757/0001-02'));
+  assert.equal(cpf.destinatarioCnpj, null);
+  assert.ok(cpf.avisos.some((a) => /pessoa física/.test(a)));
   // chave solta, com pontos ou traços, no meio de uma frase
   assert.equal(acharChaveNoTexto(`chave: ${CHAVE}.`).chave, CHAVE);
   assert.equal(acharChaveNoTexto(CHAVE.match(/.{1,4}/g).join('-')).chave, CHAVE);

@@ -1,4 +1,4 @@
-import { h, brl, brl0, pct, dataBR, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, montar, numBR as num, paraCampo } from '../ui.js';
+import { h, brl, brl0, pct, dataBR, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, montar, copiarTexto, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT, ehDono } from '../api.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -19,18 +19,19 @@ export async function formCliente(cliente, aoSalvar) {
     const c = cliente || { tipo: 'avulso', prazo_dias: 0, limite_credito: 0, ativo: 1 };
     const f = h('form', { class: 'formulario' },
       campo('Nome', entrada('nome', c.nome || '', { required: true })),
-      campo('Tipo', selecao('tipo', TIPOS, c.tipo)),
-      h('div', { class: 'duas' },
-        campo('Prazo de pagamento (dias)', entrada('prazoDias', c.prazo_dias, { type: 'number', min: 0, max: 180 }), '0 = paga na retirada do carro'),
-        campo('Limite de crédito (R$)', entrada('limite', c.limite_credito || '', { inputmode: 'decimal' }), 'máximo em aberto; 0 = sem crédito')),
-      cliente?.id ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'ativo', checked: !!c.ativo }), ' Cliente ativo') : null,
+      ehDono() ? [campo('Tipo', selecao('tipo', TIPOS, c.tipo)),
+        h('div', { class: 'duas' },
+          campo('Prazo de pagamento (dias)', entrada('prazoDias', c.prazo_dias, { type: 'number', min: 0, max: 180 }), '0 = paga na retirada do carro'),
+          campo('Limite de crédito (R$)', entrada('limite', c.limite_credito || '', { inputmode: 'decimal' }), 'máximo em aberto; 0 = sem crédito'))]
+        : h('p', { class: 'dica' }, 'Prazo, limite de crédito e tipo do cliente são definidos pelo dono.'),
+      cliente?.id && ehDono() ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'ativo', checked: !!c.ativo }), ' Cliente ativo') : null,
       campo('Observação', entrada('obs', c.obs || '')),
       h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       const d = lerForm(f);
-      const corpo = { nome: d.nome, tipo: d.tipo, prazoDias: Number(d.prazoDias || 0), limite: d.limite ? num(d.limite) : 0, obs: d.obs };
-      if (cliente?.id) corpo.ativo = d.ativo;
+      const corpo = ehDono() ? { nome: d.nome, tipo: d.tipo, prazoDias: Number(d.prazoDias || 0), limite: d.limite ? num(d.limite) : 0, obs: d.obs } : { nome: d.nome, obs: d.obs };
+      if (cliente?.id && ehDono()) corpo.ativo = d.ativo;
       try { if (cliente?.id) await PUT(`/clientes/${cliente.id}`, corpo); else await POST('/clientes', corpo); toast('Cliente salvo.'); fechar(); aoSalvar(); } catch (err) { toast(err.message, true); }
     });
     return f;
@@ -58,7 +59,7 @@ async function extrato(cliente) {
   const cob = await GET(`/clientes/${cliente.id}/cobranca`);
   modal(`Extrato · ${cliente.nome}`, () => h('div', null,
     h('div', { class: 'botoes' },
-      h('button', { class: 'primario', onclick: async () => { try { await navigator.clipboard.writeText(cob.texto); toast('Texto copiado. Cole no WhatsApp.'); } catch { toast('Não consegui copiar; selecione o texto abaixo.', true); } } }, 'Copiar cobrança (WhatsApp)')),
+      h('button', { class: 'primario', onclick: async () => { if (await copiarTexto(cob.texto)) toast('Texto copiado. Cole no WhatsApp.'); else toast('Não consegui copiar; selecione o texto abaixo.', true); } }, 'Copiar cobrança (WhatsApp)')),
     h('pre', { class: 'cobranca' }, cob.texto),
     h('h3', null, 'Movimentação'),
     d.extrato.movimentos.length ? h('table', { class: 'tabela' }, h('thead', null, h('tr', null, ['Data', 'Descrição', 'Débito', 'Crédito', 'Saldo'].map((t) => h('th', null, t)))),

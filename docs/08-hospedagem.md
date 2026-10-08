@@ -108,7 +108,7 @@ Use `systemd` ou `pm2` para manter rodando e reiniciar sozinho.
 cd app && npm install
 npm run demo        # cria um banco com dados inventados em app/data/multmec.db
 npm start           # http://localhost:3000   senha de desenvolvimento: multmec
-npm test            # 127 testes
+npm test            # 180 testes
 ```
 
 Para usar seus dados reais localmente: `npm run importar -- caminho/servicos.csv --corte AAAA-MM-DD` (em outro `DB_PATH` se já rodou o demo).

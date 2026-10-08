@@ -1,5 +1,5 @@
 // Janelas da área de Compras: boleto, nota, aplicar peça em OS, fornecedor, pagamento com trava.
-import { h, brl, brl0, dataBR, selo, vazio, toast, modal, atualizarModal, acao, campo, entrada, selecao, lerForm, confirmar, montar, cnpjBR, numBR as num, paraCampo } from '../ui.js';
+import { h, brl, brl0, dataBR, selo, vazio, toast, modal, atualizarModal, acao, campo, entrada, selecao, lerForm, confirmar, montar, cnpjBR, copiarTexto, numBR as num, paraCampo } from '../ui.js';
 import { escolherItemLivre } from './vendas.js';
 import { GET, POST, PUT, DEL, ehDono } from '../api.js';
 
@@ -8,11 +8,32 @@ const ROTULO_SEV = { alta: 'GRAVE', media: 'conferir', baixa: 'detalhe' };
 const TIPO_SEV = { alta: 'critico', media: 'aviso', baixa: 'info' };
 const DESTINOS = { estoque: 'Estoque', uso_interno: 'Uso interno', devolvido: 'Devolvida ao fornecedor', os: 'OS', outra_empresa: 'Outra empresa do grupo' };
 const ROTULO_PERFIL = { dono: 'dono', lancamento: 'quem lança' };
-const dataHoraBR = (s) => (s ? `${dataBR(s.slice(0, 10))} ${s.slice(11, 16)}` : '');
+// o banco guarda a hora em UTC ("2026-10-08 18:30:00"): mostra no horário de Brasília
+const dataHoraBR = (s) => {
+  if (!s) return '';
+  const d = new Date(`${s.replace(' ', 'T')}Z`);
+  return Number.isNaN(d.getTime()) ? `${dataBR(s.slice(0, 10))} ${s.slice(11, 16)}` : d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+};
+const ACOES = { cadastrar: 'cadastrado', conciliar: 'ligado a nota', desconciliar: 'ligação desfeita', pagar: 'pago', pagar_liberado: 'pago com ressalva', desfazer_pagamento: 'pagamento desfeito', cancelar: 'cancelado', contestar: 'contestado', reabrir: 'reaberto', corrigir: 'corrigido', aceitar: 'ocorrência aceita', dda_preencheu: 'preenchido pelo DDA do banco', empresa_do_boleto: 'empresa do boleto mudou', conta_devolvida: 'conta devolvida como era', conta_removida: 'conta a pagar removida' };
+/** O detalhe guardado é JSON: mostra só o que ajuda uma pessoa (valor, quem pagou, motivo). */
+function detalheLegivel(txt) {
+  if (!txt) return '';
+  try {
+    const d = JSON.parse(txt);
+    const partes = [];
+    if (d.valor !== undefined && d.valor !== null) partes.push(brl(d.valor));
+    if (d.pago_por) partes.push(`pago ${d.pago_por === 'oficina' ? 'pela oficina' : `pela ${d.empresa ?? 'empresa'}`}`);
+    if (d.empresa && !d.pago_por) partes.push(d.empresa);
+    if (d.motivo) partes.push(`motivo: ${String(d.motivo).slice(0, 160)}`);
+    if (d.origem) partes.push(d.origem === 'auto' ? 'ligação automática' : 'ligação manual');
+    return partes.join(' · ');
+  } catch { return String(txt).slice(0, 160); }
+}
+const qtdBR = (q) => String(q).replace('.', ',');
 // Consulta resumida da NF-e no portal nacional (pede a chave e um captcha; mostra situação e valor)
 const URL_PORTAL_NFE = 'https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=';
 const SIT_CONSULTA = [['autorizada', 'Autorizada (uso autorizado)'], ['cancelada', 'Cancelada'], ['denegada', 'Denegada'], ['nao_encontrada', 'NÃO encontrada']];
-const MENSAGEM_PEDIR_XML = 'Olá! Aqui é da Multmec. A partir de agora, toda nota fiscal que vocês emitirem para nós precisa vir acompanhada do arquivo XML da NF-e, enviado pelo mesmo canal em que mandam o boleto. Também pedimos que, no pedido, conste o número da nossa OS ou a placa do veículo (no campo "Pedido" ou em "Informações adicionais" da nota), para conferirmos cada peça. Boleto que não bater com uma nota nossa será devolvido. Obrigado!';
+const MENSAGEM_PEDIR_XML = 'Olá! Aqui é da Multmec. Para conferir e arquivar certinho as suas notas, pode nos mandar também o arquivo XML de cada NF-e, junto com o PDF e o boleto, pelo mesmo e-mail ou WhatsApp? A legislação prevê que quem emite a NF-e envie ou disponibilize o XML e o protocolo de autorização ao cliente (Ajuste SINIEF 07/05). Também pedimos que, no pedido, conste o número da nossa OS ou a placa do veículo (campo "Pedido" ou "Informações adicionais" da nota), para conferirmos cada peça. Quando a nota for da IziCar ou da oficina do Mateus, avisem o CNPJ antes de emitir. Boleto que não bater com uma nota nossa será devolvido. Obrigado!';
 const MENSAGEM_PADRAO = 'Cole a linha digitável (47 números), o código de barras (44) ou o texto inteiro do boleto copiado do PDF.';
 
 export const chipSev = (sev) => selo(ROTULO_SEV[sev] ?? sev, TIPO_SEV[sev] ?? 'neutro');
@@ -202,7 +223,7 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
         dono && b.situacao === 'pago' ? h('button', { onclick: acao(async () => { if (!confirmar('Desfazer o pagamento deste boleto? Ele volta a ficar em aberto.')) return; await POST(`/compras/boletos/${id}/desfazer-pagamento`, {}); toast('Pagamento desfeito.'); await atualizar({ currentTarget: null }); }) }, 'Desfazer pagamento') : null,
         b.situacao === 'aberto' && (dono || b.criado_por === 'lancamento') ? h('button', { class: 'perigo', onclick: acao(async () => { if (confirmar('Cancelar este boleto? A conta a pagar ligada também sai.')) { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'cancelado' }); toast('Boleto cancelado.'); fechar(); aoMudar(); } }) }, 'Cancelar boleto') : null),
       !dono && b.situacao === 'aberto' ? h('p', { class: 'dica' }, 'Quem paga é o dono. Cadastre a nota, informe quem recebe e quem paga, e avise o dono quando estiver conferido.') : null,
-      d.historico?.length ? [h('h3', null, 'Histórico'), h('div', { class: 'historico' }, d.historico.map((x) => h('div', null, `${dataHoraBR(x.em)} · ${x.acao}${x.perfil ? ` (${ROTULO_PERFIL[x.perfil] ?? x.perfil})` : ''}${x.detalhe ? ` · ${x.detalhe.slice(0, 120)}` : ''}`)))] : null);
+      d.historico?.length ? [h('h3', null, 'Histórico'), h('div', { class: 'historico' }, d.historico.map((x) => h('div', null, `${dataHoraBR(x.em)} · ${ACOES[x.acao] ?? x.acao}${x.perfil ? ` (${ROTULO_PERFIL[x.perfil] ?? x.perfil})` : ''}${detalheLegivel(x.detalhe) ? ` · ${detalheLegivel(x.detalhe)}` : ''}`)))] : null);
     atualizarModal(fechar, conteudo);
   };
   const fechar = modal('Boleto', () => h('p', { class: 'vazio' }, 'Carregando…'));
@@ -363,8 +384,8 @@ export async function modalNota(id, aoMudar) {
         d.sugestoes_os.map((s) => h('div', null, `${s.descricao} → OS ${s.os} (${s.motivo}${s.ambigua ? '; mais de uma OS possível: escolha à mão' : ''})`)),
         d.sugestoes_os.some((s) => !s.ambigua) ? h('div', { class: 'botoes' }, h('button', { class: 'pequeno primario', onclick: acao(async () => { await POST(`/compras/notas/${id}/aplicar-sugestoes`, { itens: d.sugestoes_os.filter((s) => !s.ambigua).map((s) => ({ item_id: s.item_id, venda_id: s.venda_id })) }); toast('Sugestões aplicadas.'); recarregar(); }) }, 'Aplicar sugestões')) : null) : null,
       d.itens.map((i) => h('div', { class: 'item-nota' },
-        h('div', { class: 'item-nota-topo' }, h('b', null, i.descricao), h('span', null, `${i.quantidade} × · ${brl(i.custo_total)}`)),
-        i.alocacoes.map((a) => h('div', { class: 'aloc' }, h('span', null, a.destino === 'os' ? `OS ${a.os ?? ''} ${a.placa ?? ''} · ${a.quantidade} · ${brl(a.valor)}` : `${a.destino === 'outra_empresa' ? (a.empresa ?? 'Outra empresa') : DESTINOS[a.destino]} · ${a.quantidade} · ${brl(a.valor)}`),
+        h('div', { class: 'item-nota-topo' }, h('b', null, i.descricao), h('span', null, `${qtdBR(i.quantidade)} × · ${brl(i.custo_total)}`)),
+        i.alocacoes.map((a) => h('div', { class: 'aloc' }, h('span', null, a.destino === 'os' ? `OS ${a.os ?? ''} ${a.placa ?? ''} · ${qtdBR(a.quantidade)} · ${brl(a.valor)}` : `${a.destino === 'outra_empresa' ? (a.empresa ?? 'Outra empresa') : DESTINOS[a.destino]} · ${qtdBR(a.quantidade)} · ${brl(a.valor)}`),
           h('button', { class: 'icone pequeno', 'aria-label': 'Remover destino', onclick: acao(async () => { await DEL(`/compras/alocacoes/${a.id}`); toast('Destino removido.'); recarregar(); }) }, '×'))),
         i.restante > 1e-6 ? h('div', { class: 'botoes' },
           h('span', { class: 'ruim' }, `Sem destino: ${i.restante} (${brl(i.restante_valor)})`),
@@ -399,7 +420,7 @@ function blocoConsulta(n, id, recarregar) {
       h('li', null, 'Registre abaixo. Se for diferente do que foi digitado, a nota não vale.')),
     h('div', { class: 'botoes' },
       h('a', { class: 'botao', href: URL_PORTAL_NFE, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir o portal da NF-e'),
-      h('button', { type: 'button', onclick: acao(async () => { await navigator.clipboard.writeText(n.chave); toast('Chave copiada.'); }) }, 'Copiar a chave')),
+      h('button', { type: 'button', onclick: acao(async () => { const ok = await copiarTexto(n.chave); toast(ok ? 'Chave copiada.' : 'Não consegui copiar: selecione a chave acima.', !ok); }) }, 'Copiar a chave')),
     sit ? h('p', { class: confere && n.consulta_por === 'dono' ? 'bom' : 'aviso-texto' },
       `Última consulta: ${dataBR(n.consulta_em)}, por ${ROTULO_PERFIL[n.consulta_por] ?? n.consulta_por}: ${SIT_CONSULTA.find(([v]) => v === sit)?.[1] ?? sit}${n.consulta_valor ? `, ${brl(n.consulta_valor)}` : ''}.${sit === 'autorizada' && !confere ? ' O valor NÃO bate com a nota.' : ''}${confere && n.consulta_por !== 'dono' ? ' Falta o dono repetir a consulta.' : ''}`) : null,
     formConsulta(n, id, recarregar),
@@ -407,16 +428,20 @@ function blocoConsulta(n, id, recarregar) {
 }
 
 function formConsulta(n, id, recarregar) {
+  // os campos nascem vazios: o valor é o que o PORTAL mostra agora, nunca o que foi digitado na nota (senão a consulta vira só um clique)
   const f = h('form', { class: 'formulario' },
-    h('div', { class: 'duas' }, campo('O que o portal mostrou', selecao('situacao', SIT_CONSULTA, n.consulta_situacao ?? 'autorizada')),
-      campo('Valor total da nota no portal', entrada('valor', n.consulta_valor ? paraCampo(n.consulta_valor) : '', { inputmode: 'decimal', placeholder: 'ex.: 1.050,00' }))),
+    h('div', { class: 'duas' }, campo('O que o portal mostrou', selecao('situacao', SIT_CONSULTA, 'autorizada')),
+      campo('Valor total da nota no portal', entrada('valor', '', { inputmode: 'decimal', placeholder: 'o que o portal mostra' }))),
+    h('div', { class: 'duas' }, campo('Data de emissão no portal (se mostrar)', entrada('emissao', '', { type: 'date' })),
+      campo('Destinatário no portal (se mostrar)', entrada('destinatario', '', { inputmode: 'text', placeholder: 'como aparece, pode ter asteriscos' }))),
+    h('p', { class: 'dica' }, 'Digite o que está NA TELA DO PORTAL, não o que está na nota digitada. Nota de outro cliente do fornecedor tem a mesma cara: o destinatário é o que diferencia.'),
     h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Registrar a consulta')));
   f.addEventListener('submit', acao(async (e) => {
     e.preventDefault();
     const d = lerForm(f);
     const valor = num(d.valor);
     if (d.situacao === 'autorizada' && !(valor > 0)) { toast('Informe o valor total que o portal mostrou.', true); return; }
-    const r = await POST(`/compras/notas/${id}/consulta`, { situacao: d.situacao, valor: d.situacao === 'autorizada' ? valor : null });
+    const r = await POST(`/compras/notas/${id}/consulta`, { situacao: d.situacao, valor: d.situacao === 'autorizada' ? valor : null, emissao: d.emissao || null, destinatario: d.destinatario || null });
     toast(r.confere ? 'Consulta registrada: o valor bate com a nota.' : (d.situacao === 'autorizada' ? 'Registrado, mas o valor NÃO bate com a nota.' : 'Consulta registrada.'), d.situacao !== 'autorizada' || !r.confere);
     recarregar();
   }));
@@ -484,6 +509,8 @@ export async function modalNotaManual(aoMudar) {
     const ler = acao(async () => {
       const r = await POST('/compras/notas/ler-danfe', { texto: texto.value });
       const avisos = r.avisos ?? [];
+      // ler outro texto começa do zero: valor, data e destinatário do texto anterior não podem ficar nos campos
+      valorTotal.value = ''; destCampo.value = ''; dataEmissao.value = hojeISO(); chaveCampo.value = ''; numero.value = ''; serie.value = '';
       if (r.ok) {
         chaveCampo.value = r.chave;
         numero.value = r.numero; serie.value = r.serie === '0' ? '' : r.serie;
@@ -587,7 +614,7 @@ export async function modalExtratoFornecedor(id, aoMudar) {
       h('div', null, h('span', null, 'Boletos em aberto'), h('b', null, brl0(t.boletosAbertos))),
       h('div', null, h('span', null, 'Boletos pagos'), h('b', null, brl0(t.boletosPagos))),
       h('div', null, h('span', null, 'Boletos SEM nota'), h('b', { class: t.boletosSemNota > 0 ? 'ruim' : 'bom' }, brl0(t.boletosSemNota)))),
-    h('div', { class: 'botoes' }, h('button', { class: 'pequeno', onclick: acao(async () => { await navigator.clipboard.writeText(MENSAGEM_PEDIR_XML); toast('Mensagem copiada. Cole no WhatsApp ou e-mail do fornecedor.'); }) }, 'Copiar mensagem pedindo o XML e o nº da OS')),
+    h('div', { class: 'botoes' }, h('button', { class: 'pequeno', onclick: acao(async () => { if (await copiarTexto(MENSAGEM_PEDIR_XML)) toast('Mensagem copiada. Cole no WhatsApp ou e-mail do fornecedor.'); else toast('Não consegui copiar. Selecione o texto na tela.', true); }) }, 'Copiar mensagem pedindo o XML e o nº da OS')),
     h('h3', null, 'Boletos'),
     d.boletos.length ? d.boletos.slice(0, 30).map((b) => h('button', { class: 'linha-simples', onclick: acao(() => modalBoleto(b.id, aoMudar)) },
       h('span', null, `${dataBR(b.vencimento)} · ${brl(b.valor)}`), h('small', { class: b.ligacoes ? '' : 'ruim' }, `${b.situacao}${b.ligacoes ? '' : ' · sem nota'}`))) : vazio('Nenhum boleto.'),

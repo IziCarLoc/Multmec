@@ -8,7 +8,8 @@ import { hoje as hojeBR, mesDe, normalizarPlaca, r2, somarMeses, somarDias } fro
 import { normalizarCnpj, cnpjValido } from './documentos.js';
 import * as V from './validar.js';
 import { criarApiCompras, ErroBloqueio } from './api_compras.js';
-import { pagarBoleto, desfazerPagamentoBoleto } from './boletos.js';
+import { pagarBoleto, desfazerPagamentoBoleto, reatribuirEmpresas } from './boletos.js';
+import { registrar } from './trilha.js';
 import { ocorrencias as ocorrenciasCompras, resumoAuditoria, vereditoDoBoleto } from './auditoria.js';
 
 const SITUACOES = ['orcamento', 'aberta', 'concluida', 'cancelada'];
@@ -29,6 +30,11 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   };
   // a trilha de auditoria anota o perfil de quem fez o pedido (o corpo do pedido já foi lido: o contexto cobre todo o tratamento)
   api.use((req, res, next) => contexto.run({ perfil: req.perfil ?? null }, next));
+  // objeto com chave "toString"/"valueOf" no corpo faz o código de conversão de texto falhar (erro 500): pedido assim nunca é legítimo
+  const PROIBIDAS = new Set(['toString', 'valueOf', 'toJSON', 'constructor', '__proto__', 'hasOwnProperty']);
+  const suspeito = (v, nivel = 0) => nivel < 6 && v !== null && typeof v === 'object'
+    && Object.keys(v).some((k) => PROIBIDAS.has(k) || suspeito(v[k], nivel + 1));
+  api.use((req, res, next) => (suspeito(req.body) ? res.status(400).json({ erro: 'Pedido inválido.' }) : next()));
 
   // ------------------------------------------------------------ painel
   api.get('/painel', soDono, wrap((req, res) => {
@@ -94,6 +100,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     if ('cnpjOficina' in b) {
       const c = normalizarCnpj(b.cnpjOficina);
       if (c && !cnpjValido(c)) throw new V.ErroValidacao('O CNPJ da oficina não passa na validação (confira os números).');
+      if (c && db.prepare('SELECT 1 FROM empresas_grupo WHERE cnpj = ?').get(c)) throw new V.ErroValidacao('Este CNPJ já está cadastrado como empresa do grupo (Compras > Grupo). O CNPJ da oficina não pode ser o de outra empresa.');
       novo.cnpjOficina = c;
     }
     if ('auditoriaDesde' in b) novo.auditoriaDesde = V.data(b.auditoriaDesde, { campo: 'A data inicial da auditoria', obrigatorio: false }) || '';
@@ -113,6 +120,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     if ('saldoCaixaInicial' in b) novo.saldoCaixaInicial = V.dinheiro(b.saldoCaixaInicial, { campo: 'o saldo inicial', minimo: -10_000_000 });
     if ('saldoCaixaInicialData' in b) novo.saldoCaixaInicialData = V.data(b.saldoCaixaInicialData, { campo: 'A data do saldo', obrigatorio: false }) || '';
     gravarConfig(db, novo);
+    if ('cnpjOficina' in novo) reatribuirEmpresas(db);          // o CNPJ da oficina nunca é de empresa do grupo: refaz a empresa dos boletos
     res.json(lerConfig(db));
   }));
 
@@ -131,7 +139,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     res.json(linhas);
   }));
   api.post('/clientes', wrap((req, res) => {
-    const c = clienteDe(req.body || {});
+    // cliente novo cadastrado por quem só lança nasce sem crédito: limite, prazo e tipo são política do dono
+    const c = clienteDe(ehDono(req) ? (req.body || {}) : { nome: req.body?.nome, obs: req.body?.obs });
     try {
       const r = db.prepare('INSERT INTO clientes (nome, tipo, prazo_dias, limite_credito, ativo, obs) VALUES (@nome, @tipo, @prazo_dias, @limite_credito, @ativo, @obs)').run(c);
       res.status(201).json({ id: Number(r.lastInsertRowid), ...c });
@@ -145,6 +154,11 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM clientes WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'Cliente não encontrado.' });
     const c = clienteDe(req.body || {}, atual);
+    // limite, prazo, tipo e "ativo" são a política de crédito: só o dono muda (quem lança pode corrigir nome e observação)
+    if (!ehDono(req) && (c.limite_credito !== atual.limite_credito || c.prazo_dias !== atual.prazo_dias || c.tipo !== atual.tipo || c.ativo !== atual.ativo)) {
+      return res.status(403).json({ erro: 'Limite, prazo, tipo e situação do cliente a prazo são só do dono.' });
+    }
+    if (c.limite_credito !== atual.limite_credito || c.prazo_dias !== atual.prazo_dias || c.tipo !== atual.tipo) registrar(db, 'cliente_credito', 'cliente', id, { antes: { limite: atual.limite_credito, prazo: atual.prazo_dias, tipo: atual.tipo }, depois: { limite: c.limite_credito, prazo: c.prazo_dias, tipo: c.tipo } });
     db.prepare('UPDATE clientes SET nome=@nome, tipo=@tipo, prazo_dias=@prazo_dias, limite_credito=@limite_credito, ativo=@ativo, obs=@obs WHERE id=@id').run({ ...c, id });
     res.json({ id, ...c });
   }));
@@ -169,6 +183,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       forma: V.opcao(b.forma, FORMAS, { campo: 'a forma', padrao: null }),
       obs: V.texto(b.obs, { campo: 'a observação', max: 200 }),
     });
+    registrar(db, 'recebimento_cliente', 'cliente', id, { valor: V.dinheiro(b.valor, { campo: 'o valor', minimo: 0.01 }) });
     res.json(r);
   }));
   api.post('/clientes/:id/saldo-anterior', soDono, wrap((req, res) => {
@@ -291,6 +306,9 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM vendas WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'OS não encontrada.' });
     const v = vendaDe(req.body || {}, atual);
+    if (v.valor_total !== atual.valor_total || v.situacao !== atual.situacao || (v.custo_pecas ?? null) !== (atual.custo_pecas ?? null)) {
+      registrar(db, 'os_alterada', 'os', id, { antes: { total: atual.valor_total, situacao: atual.situacao, custo_pecas: atual.custo_pecas }, depois: { total: v.valor_total, situacao: v.situacao, custo_pecas: v.custo_pecas } });
+    }
     db.prepare(`UPDATE vendas SET numero=@numero, data=@data, cliente_id=@cliente_id, veiculo=@veiculo, placa=@placa, mecanico_id=@mecanico_id, situacao=@situacao, valor_total=@valor_total, valor_mao_obra=@valor_mao_obra, custo_pecas=@custo_pecas, custo_frete=@custo_frete, custo_insumos=@custo_insumos, forma_pagamento=@forma_pagamento, vencimento=@vencimento, obs=@obs, data_estimada=0, custo_pecas_auto=@auto WHERE id=@id`).run({ ...v, id, auto: (v.custo_pecas ?? null) === (atual.custo_pecas ?? null) ? atual.custo_pecas_auto : 0 });
     res.json({ ok: true });
   }));
@@ -306,6 +324,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const valor = req.body?.valor === undefined ? aberto : V.dinheiro(req.body.valor, { campo: 'o valor', obrigatorio: true, minimo: 0.01 });
     if (valor > aberto + 0.004) throw new V.ErroValidacao(`Só falta receber ${aberto.toFixed(2)} desta OS.`);
     db.prepare('INSERT INTO recebimentos (venda_id, data, valor, forma) VALUES (?, ?, ?, ?)').run(id, V.data(req.body?.data || hoje(), { campo: 'A data' }), valor, V.opcao(req.body?.forma, FORMAS, { campo: 'a forma', padrao: null }));
+    registrar(db, 'recebimento', 'os', id, { valor });
     res.json({ ok: true });
   }));
   api.delete('/recebimentos/:id', soDono, wrap((req, res) => {
@@ -329,7 +348,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const cfgCompras = lerConfig(db);
     const boletosDoMes = new Map(db.prepare(`SELECT b.*, f.nome AS fornecedor FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.saida_id IS NOT NULL`).all().map((b) => [b.saida_id, b]));
     const todas = boletosDoMes.size ? ocorrenciasCompras(db, h, cfgCompras) : [];
-    const linhas = F.saidasDoMes(db, ym).map((s) => {
+    // quem só lança vê as contas de fornecedores (boletos); salário, aluguel, pró-labore e o resto são do dono
+    const linhas = F.saidasDoMes(db, ym).filter((s) => ehDono(req) || s.grupo === 'pecas').map((s) => {
       const b = boletosDoMes.get(s.id);
       return {
         ...s, situacao: s.pago_em ? 'paga' : (s.vencimento < h ? 'atrasada' : 'a_pagar'),
@@ -367,6 +387,11 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM saidas WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'Conta não encontrada.' });
     const s = saidaDe(req.body || {}, atual);
+    // conta já paga só o dono mexe (alterar valor ou categoria de conta paga muda a retirada e o resultado); toda mudança de valor/categoria/vencimento fica na trilha
+    if (atual.pago_em && !ehDono(req)) return res.status(403).json({ erro: 'Conta já paga só o dono altera.' });
+    if (s.valor !== atual.valor || s.categoria_id !== atual.categoria_id || s.vencimento !== atual.vencimento) {
+      registrar(db, 'conta_alterada', 'saida', id, { antes: { valor: atual.valor, categoria: atual.categoria_id, vencimento: atual.vencimento, paga: !!atual.pago_em }, depois: { valor: s.valor, categoria: s.categoria_id, vencimento: s.vencimento } });
+    }
     // valor e vencimento de uma conta nascida de boleto são do boleto: mudar aqui desligaria a conferência
     if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id) && (s.valor !== atual.valor || s.vencimento !== atual.vencimento || s.categoria_id !== atual.categoria_id)) {
       throw new V.ErroValidacao('Valor, vencimento e categoria desta conta vêm do boleto e não podem ser mudados aqui. Se o boleto foi cadastrado errado, cancele-o em Compras e cadastre de novo.');
