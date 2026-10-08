@@ -19,19 +19,20 @@ Para cada ligação o sistema confere uma coisa que a oficina hoje não confere:
 | Boleto ↔ nota | O valor e o vencimento batem com uma parcela da nota (ou com a soma de algumas notas). O beneficiário do boleto é o fornecedor da nota. O pagador é a oficina. |
 | Boleto ↔ boleto | O mesmo boleto não entra duas vezes, nem dois boletos iguais para a mesma compra. |
 | Nota ↔ peça ↔ OS | Cada item da nota vai para uma OS, para o estoque ou para uso interno, sem passar da quantidade comprada. O custo da peça na OS vem da nota. |
-| Pagamento | **Boleto com problema grave não é pago sem uma justificativa registrada.** |
+| Pagamento | O recebedor foi **conferido no app do banco** e **boleto com problema grave não é pago sem uma justificativa registrada**. |
 
 ## 2. Como usar no dia a dia (10 minutos por dia)
 
 1. **Chegou nota** (e-mail, WhatsApp, portal do fornecedor): em **Compras > Notas > Importar XML** (ou **+ Nota** para digitar sem XML), escolha o(s) arquivo(s). O sistema lê fornecedor, itens, parcelas e guarda o XML original. Vários arquivos de uma vez funcionam.
-2. **Chegou boleto**: em **Compras > Boletos > + Boleto**, cole a **linha digitável** (ou o código de barras). O sistema lê banco, valor e vencimento sozinho e, ao apertar **Cadastrar e conferir**, já tenta ligar à nota certa. Se o boleto veio com vários na mesma folha, use **Colar vários** (até 60 linhas).
-   - **Atalho:** em vez da linha, você pode colar o **texto inteiro do boleto** (abra o PDF, selecione tudo, copie). O sistema acha a linha digitável sozinho e tenta separar o **CNPJ do beneficiário**, o **CNPJ do pagador** e o **número do documento** pelos rótulos do boleto. O que ele não tiver certeza, deixa em branco. **Confira os campos preenchidos com o boleto na mão**: o texto de um boleto adulterado também vem "certinho".
-   - O **CNPJ do beneficiário** é o campo que pega o boleto "de outra pessoa". Ele **não vem no código de barras**: ou vem do texto/PDF, ou uma pessoa digita olhando o boleto (melhor ainda: o nome e o CNPJ que o **aplicativo do banco** mostra ao colar a linha, antes de pagar).
-3. **Peças**: em cada nota, **Aplicar em OS**. Se o fornecedor colocou o número da OS no pedido (`xPed`) ou a placa no texto da nota, o sistema já **sugere** a OS; basta confirmar. Na tela da OS, **Ligar peça de uma nota…** faz o caminho inverso. Em **Aplicar em OS…** (item da nota) você escolhe a OS e a quantidade.
-4. **Antes de pagar**: em **Contas**, o botão *Paguei* de um boleto passa pela conferência. Sem problema grave, paga normal. Com problema grave, abre a tela dizendo o que está errado e exige **motivo escrito** para seguir.
-5. **Olhe a aba Conferência** uma vez por dia (ou semana): é a lista de tudo que precisa de atenção, da mais grave para a menos.
+2. **Chegou boleto**: em **Compras > Boletos > + Boleto**, cole a **linha digitável** (ou o código de barras). O sistema lê banco, valor e vencimento sozinho e, ao apertar **Cadastrar e conferir**, já tenta ligar à nota certa. Se o boleto veio com vários na mesma folha, use **Colar vários** (até 60 linhas; depois abra cada um para informar quem recebe).
+   - **Atalho:** em vez da linha, você pode colar o **texto inteiro do boleto** (abra o PDF, selecione tudo, copie). O sistema acha a linha digitável sozinho e tenta separar o **CNPJ de quem recebe**, o **CNPJ de quem paga** e o **número do documento** pelos rótulos do boleto. O que ele não tiver certeza, deixa em branco. **Confira os campos preenchidos com o boleto na mão**: o texto de um boleto adulterado também vem "certinho".
+   - O **CNPJ de quem recebe** é o campo que pega o boleto "de outra pessoa". Ele **não vem no código de barras**: ou vem do texto/PDF, ou uma pessoa digita olhando o boleto. Se faltar, dá para informar depois, no próprio boleto (**Informar quem recebe / paga**).
+3. **Olhe o veredito.** Cada boleto mostra uma faixa: **NÃO PAGUE** (há problema grave), **NÃO CONFERIDO** (falta o CNPJ de quem recebe ou de quem paga) ou **Conferido com a nota**. Na lista de Boletos e na tela de **Contas** aparece o mesmo selo, antes de você tocar em *Paguei*.
+4. **Peças**: em cada nota, **Aplicar em OS**. Se o fornecedor colocou o número da OS no pedido (`xPed`, por exemplo `OS1043`) ou a placa no texto da nota, o sistema já **sugere** a OS; basta confirmar. Na tela da OS, **Ligar peça de uma nota…** faz o caminho inverso.
+5. **Pagar**: em **Contas**, *Paguei* num boleto abre **Antes de pagar**. O sistema pede que você **cole a linha digitável no app do banco e confira o nome e o CNPJ de quem recebe** (é a única prova de que o dinheiro vai para o fornecedor) e marque a caixa. Se houver problema grave, aparece **Pagamento travado** e é preciso escrever o motivo.
+6. **Olhe a aba Conferência** uma vez por dia (ou semana): é a lista de tudo que precisa de atenção, da mais grave para a menos.
 
-Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da oficina**. Sem ele o sistema não consegue dizer que "o boleto é de outro CNPJ" (aparece um aviso lembrando).
+Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da oficina**; depois, em **Compras > Fornecedores**, confira o CNPJ e o telefone de cada fornecedor (pelo cartão CNPJ e por um telefone que a oficina já tinha) e marque *conferi*.
 
 ## 3. O que cada ocorrência significa e o que fazer
 
@@ -40,25 +41,38 @@ Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da of
 | Ocorrência | Significa | O que fazer |
 |---|---|---|
 | Boleto sem nota fiscal | Nenhuma nota explica esse boleto. | Peça a nota ao fornecedor. Sem nota, não pague. |
-| Beneficiário do boleto NÃO é o fornecedor | O CNPJ que recebe o dinheiro é outro. Mesma raiz de CNPJ (outra filial) vira aviso médio. | Ligue para o fornecedor num telefone **que você já tinha**, não o que veio no boleto. Golpe de boleto adulterado costuma ser assim. |
+| Boleto ligado a nota sem comprovação | A nota foi digitada à mão ou o XML não traz protocolo de autorização: não prova nada. | Importe o XML autorizado ou consulte a chave no portal da NF-e e registre ao liberar. |
+| Beneficiário do boleto NÃO é o fornecedor | O CNPJ que recebe o dinheiro é outro. Mesma raiz de CNPJ (outra filial) vira aviso médio. Não vale se o CNPJ está em *Outros CNPJs que podem receber* do fornecedor ou na própria nota. | Ligue para o fornecedor num telefone **que você já tinha**, não o do boleto. Golpe de boleto adulterado costuma ser assim. |
 | Boleto emitido contra outro CNPJ | O pagador impresso não é a oficina. | Pode ser boleto de outro cliente enviado por engano (ou de propósito). Não pague. |
+| Boleto ligado a nota de outro fornecedor | Boleto e nota são de empresas diferentes. | Desfaça a ligação e ache a nota certa. |
 | Nota emitida para outro CNPJ | A nota é de outro destinatário. | Pode ser nota de outro cliente. Peça a correta. |
 | Boleto cobra mais do que as notas explicam | Sobra dinheiro: juros, nota faltando, ou cobrança indevida. | Peça o detalhamento. |
 | Boletos somam mais que a nota | Mais boleto do que nota: possível cobrança em duplicidade. | Pague só o que a nota cobre. |
 | Boleto de nota CANCELADA ou DENEGADA | O fornecedor cancelou a nota (ou a SEFAZ negou o uso dela) e ainda cobra. | Não pague; peça que o fornecedor cancele o título. |
-| Possível boleto em duplicidade | Dois boletos com mesmo fornecedor, valor e vencimento. | Pague um só, depois de confirmar. |
+| Possível boleto em duplicidade / Segunda via do mesmo título | Mesmo fornecedor, valor e vencimento; ou o mesmo número de título (nosso número) com outro vencimento. | Pague um só, depois de confirmar. |
 
-**Média** (resolver na semana): boleto vencido; **banco diferente do que o fornecedor costuma usar** (depois de 2 boletos do mesmo fornecedor, um boleto de outro banco é o sinal mais comum de boleto adulterado, mas também acontece troca legítima de conta: confirme por telefone); parcela perto de vencer ou vencida **sem boleto**; custo digitado na OS diferente das notas; peças de uma nota sem destino (depois de alguns dias).
+**Média** (resolver na semana): boleto vencido; **banco diferente do que o fornecedor costuma usar** (depois de 2 boletos do mesmo fornecedor, um boleto de outro banco é o sinal mais comum de boleto adulterado, mas também acontece troca legítima de conta: confirme por telefone); **fornecedor ainda não conferido**; **documento impresso no boleto que não é o da nota**; boleto cadastrado **sem linha digitável**; parcela perto de vencer ou vencida **sem boleto**; **contas de peças lançadas direto em Contas sem boleto em Compras**; custo da OS diferente das notas; peças de uma nota sem destino (depois de alguns dias); CNPJ da oficina não informado; fornecedor sem CNPJ; valor ligado às notas maior que o boleto.
 
-**Baixa** (organização): **falta conferir quem recebe o boleto** (o CNPJ do beneficiário não foi informado; sobe para média quando faltam 3 dias ou menos para vencer: é a hora de olhar o app do banco); nota digitada à mão sem chave de acesso; fornecedor sem CNPJ; preço de peça bem acima do histórico; vencimento do boleto diferente da parcela; OS com custo de peça e nenhuma nota (resumo único).
+**Baixa** (organização): **falta conferir quem recebe ou quem paga** (sobe para média quando faltam 3 dias ou menos para vencer: é a hora de olhar o app do banco); nota digitada sem chave de acesso; preço de peça bem acima do histórico; vencimento do boleto diferente da parcela; OS com custo de peça e nenhuma nota (resumo único).
 
 ### "Está certo, conferi" (aceite)
 
-Algumas ocorrências são normais (nota paga à vista no Pix, preço subiu mesmo, boleto de filial). Aperte **Conferi, está certo** e escreva o motivo (mínimo 5 caracteres). A ocorrência some da lista e o motivo fica gravado; dá para desfazer.
+Algumas ocorrências são normais (nota paga à vista no Pix, preço subiu mesmo, boleto de filial). Aperte **Conferi, está certo** e escreva o motivo (**mínimo 10 letras**, não vale "aaaaaaaaaa"). Regras:
+- só dá para aceitar uma ocorrência que **existe agora**;
+- o aceite **vale só para aquele fato**: se a divergência aceita era de R$ 30 e depois vira R$ 310, ou o grupo de boletos muda, a ocorrência volta e o sistema avisa que a versão aceita é outra;
+- fica no **histórico** (só inclusão: nada é apagado), e se o boleto for pago com ocorrência grave aceita, o motivo é gravado no próprio boleto.
 
-### Pagamento travado
+### Pagamento: o que o sistema exige
 
-Se o boleto tem ocorrência **alta** não aceita, o sistema recusa o pagamento até alguém apertar **Pagar mesmo assim** com motivo escrito (o outro botão é **Não pagar agora**). Isso não impede o dono de pagar; impede de pagar **sem ver**. O motivo fica no boleto.
+1. **Conferir o recebedor no app do banco** (caixa de marcar), uma vez por boleto.
+2. Se há ocorrência **alta** não aceita: **Pagar mesmo assim** com motivo escrito (mínimo 10 letras). Isso não impede o dono de pagar; impede de pagar **sem ver**.
+3. Se o **valor pago** for diferente do valor do boleto (juros, multa, desconto), é preciso explicar o motivo.
+4. Boleto **contestado** não paga (reabra antes). Quem **cancela ou contesta** um boleto libera a nota: ela volta a precisar de boleto e o boleto certo liga sozinho.
+5. Uma conta já lançada em Contas com o mesmo valor e vencimento é **adotada** pelo boleto (não duplica a dívida). Valor, vencimento e categoria de uma conta de boleto não se editam em Contas.
+
+### Histórico (trilha de auditoria)
+
+Cada boleto mostra o **Histórico**: ligações, correções, pagamento, liberação, cancelamento. Há também registro de notas apagadas e de mudanças em fornecedores. O sistema ainda usa **uma senha só**: o histórico diz **o que** e **quando**, não **quem**. Se a oficina precisar de responsabilidade por pessoa (quem cadastra não é quem paga), o próximo passo é login individual.
 
 ## 4. Como o sistema liga boleto a nota
 
@@ -171,9 +185,15 @@ O DDA é o serviço dos bancos que lista **todos os boletos registrados emitidos
 
 O prazo "nota sem boleto" (5 dias antes da parcela vencer) fica no banco (`dias_nota_sem_boleto`) e ainda não tem campo na tela.
 
-## 9. O que mudou de pré-existente
+## 9. O que mudou em partes que já existiam
 
-Ao testar o módulo, apareceu um defeito que **já existia** na versão anterior: **apagar uma OS ou uma conta pela interface falhava** (o servidor recusava o pedido sem corpo). Foi corrigido, com teste, e a interface agora sempre envia o cabeçalho esperado.
+Ao testar e revisar o módulo, apareceram defeitos que **já existiam** na primeira versão do sistema. Todos corrigidos, com teste:
+- **Apagar uma OS ou uma conta pela interface falhava** (o servidor recusava o pedido sem corpo).
+- **Valores com ponto decimal viravam 100 vezes maiores** nos formulários (digitar `200.00` gravava R$ 20.000): havia cinco leitores de número diferentes; agora há um só.
+- **Sair não encerrava a sessão** no servidor (o cookie copiado valia por 14 dias): agora a sessão é guardada e revogada ao sair.
+- Cookie malformado derrubava a requisição com erro 500; corpo grande era processado **antes** do login; corpo lixo no login trancava o dono para fora.
+- Abrir a tela de Contas ou o Painel num mês muito futuro **criava contas fixas** para aquele mês.
+- Editar o custo de peças de uma OS que veio das notas fazia o sistema **sobrescrever** o valor digitado na próxima ligação.
 
 ## 10. Perguntas para você (as respostas mudam o que construir a seguir)
 

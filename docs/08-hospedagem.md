@@ -80,6 +80,10 @@ O banco guarda também o **XML original das notas fiscais** (compactado), então
 - [ ] Quem tem acesso ao Drive/servidor é quem precisa.
 - [ ] Dados pessoais (nome, placa): ver nota de LGPD em `05-sistema.md`.
 
+## 6b. Sessões e troca de senha
+
+O login fica guardado no banco: **Sair** encerra a sessão de verdade. Para derrubar **todas** as sessões de uma vez (por exemplo, quando um sócio sai), troque `SESSION_SECRET` e reinicie. Trocar só `APP_PASSWORD` não derruba quem já está dentro.
+
 ## 7. Atualizar o sistema
 
 ```bash
@@ -103,7 +107,7 @@ Use `systemd` ou `pm2` para manter rodando e reiniciar sozinho.
 cd app && npm install
 npm run demo        # cria um banco com dados inventados em app/data/multmec.db
 npm start           # http://localhost:3000   senha de desenvolvimento: multmec
-npm test            # 68 testes
+npm test            # 127 testes
 ```
 
 Para usar seus dados reais localmente: `npm run importar -- caminho/servicos.csv --corte AAAA-MM-DD` (em outro `DB_PATH` se já rodou o demo).

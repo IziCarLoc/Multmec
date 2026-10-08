@@ -36,7 +36,7 @@
 |---|---|---|
 | ![Painel](img/app_01_painel.png) | ![Nova OS](img/app_03_nova_os.png) | ![A prazo](img/app_04_a_prazo.png) |
 
-Conferência de compras: [Conferência](img/compras_01_conferencia.png) · [Boletos](img/compras_02_boletos.png) · [Detalhe de um boleto](img/compras_03_boleto_detalhe.png) · [Pagamento travado](img/compras_07_pagamento_travado.png).
+Conferência de compras: [Conferência](img/compras_01_conferencia.png) · [Boletos](img/compras_02_boletos.png) · [Detalhe de um boleto](img/compras_03_boleto_detalhe.png) · [Novo boleto colando o texto](img/compras_04_novo_boleto.png) · [Informar quem recebe](img/compras_08_informar_quem_recebe.png) · [Antes de pagar](img/compras_09_antes_de_pagar.png) · [Pagamento travado](img/compras_07_pagamento_travado.png).
 
 Outras telas: [Vendas](img/app_02_vendas.png) · [Contas](img/app_05_contas.png) · [Metas e simulador](img/app_06_metas.png). Nessas imagens a locadora aparece **TRAVADA** porque o banco de demonstração tem 18 dias de atraso inventados.
 
@@ -125,7 +125,7 @@ O sistema guarda **nome, placa e valor de clientes**: são dados pessoais.
 
 - **Node.js + Express + SQLite (`better-sqlite3`).** Uma pasta, um processo, um arquivo de banco. Cabe numa hospedagem pequena. Tecnologia comum, fácil de manter.
 - **Front-end sem framework e sem build.** Arquivos estáticos servidos pelo próprio Express. Menos coisa para quebrar e para hospedar. Gráficos em SVG próprios.
-- **Testes** com o executor nativo do Node: `cd app && npm test`. 68 testes cobrindo importação, datas, cascata, termômetro, aging, recebimento FIFO, caixa, autenticação, o fluxo de OS pela API e a conferência de compras (chave da NF-e, CNPJ, linha digitável e fator de vencimento com vetores independentes, leitura do XML, conciliação, ocorrências e trava de pagamento).
+- **Testes** com o executor nativo do Node: `cd app && npm test`. 127 testes cobrindo importação, datas, cascata, termômetro, aging, recebimento FIFO, caixa, autenticação, o fluxo de OS pela API e a conferência de compras (chave da NF-e, CNPJ, linha digitável e fator de vencimento com vetores independentes, leitura do XML, conciliação, ocorrências e trava de pagamento).
 - **Se a hospedagem for só PHP/MySQL** (comum em plano compartilhado), este sistema não roda lá. Teria de ser reescrito ou hospedado em outro lugar (`08-hospedagem.md`, seção "E se a hospedagem for compartilhada"). É uma das perguntas em `07`.
 
 ## 9. Limitações conhecidas do protótipo
