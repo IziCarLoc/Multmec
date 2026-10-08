@@ -129,16 +129,24 @@ export async function modalNovoBoleto(aoMudar) {
   const forn = await GET('/compras/fornecedores');
   const cfg = await GET('/config');
   modal('Novo boleto', (fechar) => {
-    const leitura = h('div', { class: 'resumo-os' }, 'Cole a linha digitável (47 números) ou o código de barras (44).');
+    const leitura = h('div', { class: 'resumo-os' }, 'Cole a linha digitável (47 números), o código de barras (44) ou o texto inteiro do boleto copiado do PDF.');
     const linha = h('textarea', { name: 'linha', rows: 2, placeholder: '34191.79001 01043.510047 91020.150008 5 87560026000', inputmode: 'numeric', autocomplete: 'off' });
     const valor = entrada('valor', '', { inputmode: 'decimal' });
     const venc = entrada('vencimento', '', { type: 'date' });
     let t;
     const ler = async () => {
       const texto = linha.value.replace(/\D/g, '');
-      if (texto.length < 44) { montar(leitura, 'Cole a linha digitável (47 números) ou o código de barras (44).'); valor.readOnly = false; venc.readOnly = false; return; }
+      if (texto.length < 44) { montar(leitura, 'Cole a linha digitável (47 números), o código de barras (44) ou o texto inteiro do boleto copiado do PDF.'); valor.readOnly = false; venc.readOnly = false; return; }
       try {
         const r = await POST('/compras/boletos/ler', { linha: linha.value });
+        if (r.texto && r.extras) {
+          // texto colado do PDF: guarda só a linha limpa e preenche o que o texto trouxe (a pessoa confere)
+          if (r.ok) { linha.value = r.linhaDigitavel || r.codigoBarras || linha.value; }
+          if (r.extras.numeroDocumento && !docCampo.value) docCampo.value = r.extras.numeroDocumento;
+          if (r.extras.beneficiarioCnpj && !benefCampo.value) benefCampo.value = cnpjBR(r.extras.beneficiarioCnpj);
+          if (r.extras.pagadorCnpj && !pagCampo.value) pagCampo.value = cnpjBR(r.extras.pagadorCnpj);
+          r.avisos = [...(r.avisos || []), ...(r.extras.avisos || []), ...(r.ok ? ['Li o texto colado. Confira o beneficiário e o pagador abaixo com o boleto em mãos antes de cadastrar.'] : [])];
+        }
         montar(leitura,
           r.ok ? h('div', null, h('b', { class: 'bom' }, `Dígitos conferem · ${r.bancoNome ?? `banco ${r.banco ?? ''}`} · ${r.valor ? brl(r.valor) : 'sem valor'}${r.vencimento ? ` · vence ${dataBR(r.vencimento)}` : ''}`),
             h('small', { class: 'dica' }, ' Isso só mostra que a linha foi digitada certa. Não prova que o boleto é verdadeiro: a prova é a nota fiscal.')) : null,
@@ -148,18 +156,21 @@ export async function modalNovoBoleto(aoMudar) {
       } catch (e) { montar(leitura, h('div', { class: 'ruim' }, e.message)); }
     };
     linha.addEventListener('input', () => { clearTimeout(t); t = setTimeout(ler, 250); });
+    const docCampo = entrada('numeroDocumento', '', { placeholder: 'ex.: 004321/01' });
+    const benefCampo = entrada('beneficiarioCnpj', '', { inputmode: 'text', placeholder: '00.000.000/0000-00' });
+    const pagCampo = entrada('pagadorCnpj', '', { inputmode: 'text', placeholder: 'o que está impresso como pagador' });
     const novoNome = entrada('fornecedorNome', '', { placeholder: 'nome do novo fornecedor' });
     const sel = selecao('fornecedorId', [['', 'Escolha o fornecedor'], ...forn.filter((f) => f.ativo).map((f) => [f.id, `${f.nome}${f.principal ? ' (principal)' : ''}`]), ['novo', '+ Outro fornecedor…']], '');
     const campoNovo = campo('Nome do novo fornecedor', novoNome);
     campoNovo.hidden = true;
     sel.addEventListener('change', () => { campoNovo.hidden = sel.value !== 'novo'; });
     const f = h('form', { class: 'formulario' },
-      campo('Linha digitável ou código de barras', linha), leitura,
+      campo('Linha digitável, código de barras ou texto do boleto', linha), leitura,
       campo('Fornecedor', sel), campoNovo,
       h('div', { class: 'duas' }, campo('Valor', valor), campo('Vencimento', venc)),
-      campo('Nº do documento (se estiver escrito no boleto)', entrada('numeroDocumento', '', { placeholder: 'ex.: 004321/01' }), 'às vezes é o número da nota'),
-      campo('CNPJ do beneficiário (opcional, recomendado)', entrada('beneficiarioCnpj', '', { inputmode: 'text', placeholder: '00.000.000/0000-00' }), 'Confira no app do banco ANTES de pagar: o nome e o CNPJ de quem recebe.'),
-      cfg.cnpjOficina ? campo('CNPJ do pagador (opcional)', entrada('pagadorCnpj', '', { inputmode: 'text', placeholder: 'o que está impresso como pagador' }), 'deve ser o da oficina') : null,
+      campo('Nº do documento (se estiver escrito no boleto)', docCampo, 'às vezes é o número da nota'),
+      campo('CNPJ do beneficiário (opcional, recomendado)', benefCampo, 'É quem RECEBE o dinheiro. Confira no app do banco ANTES de pagar: o nome e o CNPJ de quem recebe.'),
+      cfg.cnpjOficina ? campo('CNPJ do pagador (opcional)', pagCampo, 'deve ser o da oficina') : null,
       h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Cadastrar e conferir')));
     f.addEventListener('submit', async (e) => {
       e.preventDefault();

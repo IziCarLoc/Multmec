@@ -5,6 +5,7 @@ import * as V from './validar.js';
 import { hoje as hojeBR, mesDe, r2, somarDias } from './util.js';
 import { normalizarCnpj, cnpjValido, formatarCnpj } from './documentos.js';
 import { interpretarBoleto, nomeBanco } from './boleto.js';
+import { lerTextoDoBoleto } from './boleto_texto.js';
 import {
   garantirFornecedor, importarNotaXml, criarNotaManual, notaComSaldo, restanteItem, alocar, removerAlocacao, alocarNotaNaOs, sugerirAlocacoes, recalcularCustoOs,
 } from './compras.js';
@@ -275,7 +276,14 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
 
   // ------------------------------------------------------------ boletos
   r.post('/boletos/ler', wrap((req, res) => {
-    res.json(interpretarBoleto(String(req.body?.linha ?? ''), hoje()));
+    const entrada = String(req.body?.linha ?? '').slice(0, 20000);
+    // texto inteiro do boleto (copiado do PDF): separa linha digitável, CNPJs e número do documento
+    if (/[A-Za-z\u00c0-\u00ff]/.test(entrada) || entrada.replace(/\D/g, '').length > 60) {
+      const t = lerTextoDoBoleto(entrada, hoje());
+      const extras = { beneficiarioCnpj: t.beneficiarioCnpj, pagadorCnpj: t.pagadorCnpj, numeroDocumento: t.numeroDocumento, avisos: t.avisos };
+      return res.json(t.boleto ? { ...t.boleto, texto: true, extras } : { ok: false, texto: true, erros: [t.avisos[0] ?? 'Não encontrei uma linha digitável no texto.'], avisos: [], extras });
+    }
+    res.json(interpretarBoleto(entrada, hoje()));
   }));
 
   r.get('/boletos', wrap((req, res) => {

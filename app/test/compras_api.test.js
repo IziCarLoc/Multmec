@@ -201,3 +201,24 @@ test('conta nascida de boleto: valor e vencimento não mudam pela edição de Co
     assert.equal(s.descricao, 'Peças (nota a confirmar)');
   } finally { fechar(); }
 });
+
+test('leitura do texto inteiro do boleto pela API devolve linha e CNPJs separados', async () => {
+  const { chamar, fechar, logar } = await subir();
+  try {
+    await logar();
+    const l = linhaDigitavel({ valor: 99.9, vencimento: '2026-10-25' });
+    const texto = `Beneficiário DISTRIBUIDORA TESTE LTDA CNPJ 11.222.333/0001-81\nPagador OFICINA ${CNPJ_OFICINA}\n${l.slice(0, 5)}.${l.slice(5, 10)} ${l.slice(10, 15)}.${l.slice(15, 21)} ${l.slice(21, 26)}.${l.slice(26, 32)} ${l[32]} ${l.slice(33)}`;
+    const r = await chamar('POST', '/api/compras/boletos/ler', { linha: texto });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.texto, true);
+    assert.equal(r.json.valor, 99.9);
+    assert.equal(r.json.linhaDigitavel, l);
+    assert.equal(r.json.extras.beneficiarioCnpj, '11222333000181');
+    assert.equal(r.json.extras.pagadorCnpj, CNPJ_OFICINA);
+    const sem = await chamar('POST', '/api/compras/boletos/ler', { linha: 'texto qualquer sem boleto' });
+    assert.equal(sem.json.ok, false);
+    assert.equal(sem.json.texto, true);
+    assert.ok(sem.json.erros.length);
+  } finally { fechar(); }
+});
