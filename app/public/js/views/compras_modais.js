@@ -171,7 +171,8 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
         h('dt', null, 'Situação'), h('dd', null, b.situacao), h('dt', null, 'Nº do documento'), h('dd', null, b.numero_documento ?? '—'),
         h('dt', null, 'Recebe (CNPJ)'), h('dd', null, b.beneficiario_cnpj ? cnpjBR(b.beneficiario_cnpj) : 'não informado'),
         h('dt', null, 'Paga (CNPJ)'), h('dd', null, b.pagador_cnpj ? cnpjBR(b.pagador_cnpj) : 'não informado'),
-        b.empresa_nome ? [h('dt', null, 'Boleto de'), h('dd', null, `${b.empresa_nome} (outra empresa do grupo, fora das contas da oficina)`)] : null,
+        b.empresa_nome ? [h('dt', null, 'Boleto de'), h('dd', null, `${b.empresa_nome} (fora das contas da oficina)`)] : null,
+        d.acerto ? [h('dt', null, 'Acerto'), h('dd', { class: d.acerto.saldo > 0.04 ? 'aviso-texto' : '' }, d.acerto.saldo > 0.04 ? `a oficina pagou; ${d.acerto.empresa} ainda deve ${brl(d.acerto.saldo)}` : `a oficina pagou; ${d.acerto.empresa} já devolveu tudo`)] : null,
         b.criado_por ? [h('dt', null, 'Cadastrado por'), h('dd', null, ROTULO_PERFIL[b.criado_por] ?? b.criado_por)] : null,
         h('dt', null, 'Banco'), h('dd', null, b.banco_nome ?? b.banco ?? '—'),
         b.conferido_banco_em ? [h('dt', null, 'Recebedor conferido no banco'), h('dd', null, dataBR(b.conferido_banco_em))] : null),
@@ -201,7 +202,7 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
         dono && b.situacao === 'pago' ? h('button', { onclick: acao(async () => { if (!confirmar('Desfazer o pagamento deste boleto? Ele volta a ficar em aberto.')) return; await POST(`/compras/boletos/${id}/desfazer-pagamento`, {}); toast('Pagamento desfeito.'); await atualizar({ currentTarget: null }); }) }, 'Desfazer pagamento') : null,
         b.situacao === 'aberto' && (dono || b.criado_por === 'lancamento') ? h('button', { class: 'perigo', onclick: acao(async () => { if (confirmar('Cancelar este boleto? A conta a pagar ligada também sai.')) { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'cancelado' }); toast('Boleto cancelado.'); fechar(); aoMudar(); } }) }, 'Cancelar boleto') : null),
       !dono && b.situacao === 'aberto' ? h('p', { class: 'dica' }, 'Quem paga é o dono. Cadastre a nota, informe quem recebe e quem paga, e avise o dono quando estiver conferido.') : null,
-      d.historico?.length ? [h('h3', null, 'Histórico'), h('div', { class: 'historico' }, d.historico.map((x) => h('div', null, `${dataHoraBR(x.em)} · ${x.acao}${x.detalhe ? ` · ${x.detalhe.slice(0, 120)}` : ''}`)))] : null);
+      d.historico?.length ? [h('h3', null, 'Histórico'), h('div', { class: 'historico' }, d.historico.map((x) => h('div', null, `${dataHoraBR(x.em)} · ${x.acao}${x.perfil ? ` (${ROTULO_PERFIL[x.perfil] ?? x.perfil})` : ''}${x.detalhe ? ` · ${x.detalhe.slice(0, 120)}` : ''}`)))] : null);
     atualizarModal(fechar, conteudo);
   };
   const fechar = modal('Boleto', () => h('p', { class: 'vazio' }, 'Carregando…'));

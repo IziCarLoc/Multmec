@@ -2,6 +2,8 @@
 
 > Problema que você descreveu: o fornecedor emite **nota fiscal** e **boleto**, mas o boleto traz só o valor. Hoje, se a Scherer (ou qualquer outro) mandar um boleto que não é da oficina, **ninguém percebe**. Este módulo fecha essa lacuna: cada real pago a fornecedor precisa ter uma **nota** por trás e cada peça da nota precisa ter um **destino** (uma OS, o estoque ou o uso interno).
 > Fica na aba **Compras** do sistema. Os dados das telas abaixo são inventados.
+>
+> **Atualização (2ª rodada):** o sistema agora separa **quem lança e quem paga** (seção 10), trata nota e boleto que saem **no CNPJ da locadora ou da oficina do sócio** (seção 11), aceita **nota sem XML** com consulta no portal (seção 12) e **importa o DDA do banco** (seção 13).
 
 ## 1. A corrente que o sistema fecha
 
@@ -19,7 +21,8 @@ Para cada ligação o sistema confere uma coisa que a oficina hoje não confere:
 | Boleto ↔ nota | O valor e o vencimento batem com uma parcela da nota (ou com a soma de algumas notas). O beneficiário do boleto é o fornecedor da nota. O pagador é a oficina. |
 | Boleto ↔ boleto | O mesmo boleto não entra duas vezes, nem dois boletos iguais para a mesma compra. |
 | Nota ↔ peça ↔ OS | Cada item da nota vai para uma OS, para o estoque ou para uso interno, sem passar da quantidade comprada. O custo da peça na OS vem da nota. |
-| Pagamento | O recebedor foi **conferido no app do banco** e **boleto com problema grave não é pago sem uma justificativa registrada**. |
+| Pagamento | O recebedor foi **conferido no app do banco** (ou pelo DDA importado) e **boleto com problema grave não é pago sem uma justificativa registrada**. Só o **dono** paga. |
+| Banco ↔ cadastro | O **DDA** que o dono importa do banco mostra todo boleto contra o CNPJ: o que o banco mostra e ninguém cadastrou, ou foi cadastrado diferente, vira alerta grave. |
 
 ## 2. Como usar no dia a dia (10 minutos por dia)
 
@@ -29,10 +32,10 @@ Para cada ligação o sistema confere uma coisa que a oficina hoje não confere:
    - O **CNPJ de quem recebe** é o campo que pega o boleto "de outra pessoa". Ele **não vem no código de barras**: ou vem do texto/PDF, ou uma pessoa digita olhando o boleto. Se faltar, dá para informar depois, no próprio boleto (**Informar quem recebe / paga**).
 3. **Olhe o veredito.** Cada boleto mostra uma faixa: **NÃO PAGUE** (há problema grave), **NÃO CONFERIDO** (falta o CNPJ de quem recebe ou de quem paga) ou **Conferido com a nota**. Na lista de Boletos e na tela de **Contas** aparece o mesmo selo, antes de você tocar em *Paguei*.
 4. **Peças**: em cada nota, **Aplicar em OS**. Se o fornecedor colocou o número da OS no pedido (`xPed`, por exemplo `OS1043`) ou a placa no texto da nota, o sistema já **sugere** a OS; basta confirmar. Na tela da OS, **Ligar peça de uma nota…** faz o caminho inverso.
-5. **Pagar**: em **Contas**, *Paguei* num boleto abre **Antes de pagar**. O sistema pede que você **cole a linha digitável no app do banco e confira o nome e o CNPJ de quem recebe** (é a única prova de que o dinheiro vai para o fornecedor) e marque a caixa. Se houver problema grave, aparece **Pagamento travado** e é preciso escrever o motivo.
+5. **Pagar (só o dono)**: em **Contas**, *Paguei* num boleto abre **Antes de pagar**. O sistema pede que você **cole a linha digitável no app do banco e confira o nome e o CNPJ de quem recebe** (é a única prova de que o dinheiro vai para o fornecedor) e marque a caixa. Se o boleto está no **DDA importado** e bate (valor, vencimento e CNPJ de quem recebe), essa conferência já foi feita pelo banco e o sistema não pede de novo. Se houver problema grave, aparece **Pagamento travado** e é preciso escrever o motivo.
 6. **Olhe a aba Conferência** uma vez por dia (ou semana): é a lista de tudo que precisa de atenção, da mais grave para a menos.
 
-Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da oficina**; depois, em **Compras > Fornecedores**, confira o CNPJ e o telefone de cada fornecedor (pelo cartão CNPJ e por um telefone que a oficina já tinha) e marque *conferi*.
+Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da oficina**; depois, em **Compras > Fornecedores**, confira o CNPJ e o telefone de cada fornecedor (pelo cartão CNPJ e por um telefone que a oficina já tinha) e marque *conferi* (só o dono marca). **O primeiro pagamento a um fornecedor que ninguém conferiu fica travado** até o dono conferir ou justificar.
 
 ## 3. O que cada ocorrência significa e o que fazer
 
@@ -149,7 +152,7 @@ O DDA é o serviço dos bancos que lista **todos os boletos registrados emitidos
 - **Regra de ouro:** só pague boleto que (a) apareça no DDA ou tenha a oficina como pagador impresso **e** (b) case com uma nota recebida.
 - Um boleto emitido por engano contra **outro** cliente da Scherer **não aparece** no DDA da oficina: é exatamente o caso que você descreveu.
 - Limites: boleto **não registrado** não aparece (então a ausência exige conferência, não prova fraude); o DDA mostra beneficiário, valor, vencimento e, em alguns bancos, o número do documento.
-- Peça ao gerente: *(1)* ativar o DDA para o CNPJ da oficina (e filiais); *(2)* se dá para **exportar** a lista (arquivo CNAB 240 de DDA ou relatório em planilha) para o sistema importar e comparar automaticamente. A oferta de exportação varia por banco: não confirmei.
+- Peça ao gerente: *(1)* ativar o DDA para o CNPJ da oficina (e da locadora e da oficina do sócio, cada um no seu banco); *(2)* como **exportar** a lista: **arquivo CNAB 240 do DDA** (o Itaú e o Banrisul publicam o leiaute; é o padrão FEBRABAN) ou **relatório em planilha/CSV**. O sistema importa os dois (seção 13).
 - Antes de pagar qualquer boleto no app do banco, **leia na tela de confirmação o nome e o CNPJ do beneficiário** e confira com o fornecedor; confira também se os **3 primeiros dígitos do código de barras** são o banco que a tela mostra.
 
 ## 7b. Quando algo não bate (roteiro; confirme com advogado e contador)
@@ -195,12 +198,112 @@ Ao testar e revisar o módulo, apareceram defeitos que **já existiam** na prime
 - Abrir a tela de Contas ou o Painel num mês muito futuro **criava contas fixas** para aquele mês.
 - Editar o custo de peças de uma OS que veio das notas fazia o sistema **sobrescrever** o valor digitado na próxima ligação.
 
-## 10. Perguntas para você (as respostas mudam o que construir a seguir)
+## 10. Quem lança e quem paga (perfis)
 
-1. A Scherer e os outros mandam **XML**? Por e-mail, portal ou só o PDF?
-2. O sistema de OS que vocês usam hoje tem **entrada de nota**? Daria para exportar? (Evitaria digitar duas vezes.)
-3. A oficina tem **certificado digital A1** (o mesmo da emissão de nota)? Com ele, o download automático das notas é viável.
-4. O banco oferece **DDA** (lista dos boletos emitidos contra o CNPJ da oficina) ou exportação em arquivo (CNAB)? É a melhor fonte para saber de boletos que ninguém cadastrou.
-5. A Scherer coloca o **número da OS ou a placa** no pedido? Se não, é viável pedir?
-6. **Quem** vai cadastrar notas e boletos, e quem vai pagar? (Separar as duas pessoas é o controle mais barato.)
+Você disse que **a Giovana cadastra as notas e você paga**. O sistema agora reflete isso, com **duas senhas**:
+
+| | **Dono** | **Quem só lança** (perfil "Lançamento") |
+|---|:---:|:---:|
+| Importar XML, digitar nota, cadastrar boleto, ligar boleto à nota, dar destino às peças | ✔ | ✔ |
+| Informar quem recebe / quem paga no boleto | ✔ | ✔ |
+| Desfazer o **próprio** cadastro errado (boleto em aberto que ela mesma criou) | ✔ | ✔ |
+| **Pagar** (Contas e Compras), desfazer pagamento | ✔ | ✘ |
+| Liberar boleto com problema grave ("pagar mesmo assim"), **aceitar** ocorrência | ✔ | ✘ |
+| Contestar ou reabrir boleto, cancelar nota, apagar nota | ✔ | ✘ |
+| **Confirmar fornecedor** e autorizar outro CNPJ recebedor | ✔ | ✘ |
+| Registrar a **consulta que vale como prova** de nota sem XML | ✔ | só a dela, que fica pendente |
+| Importar o **DDA** do banco, empresas do grupo, acerto entre empresas | ✔ | ✘ |
+| Painel, metas, relatórios, simulador, importar planilha, exportar | ✔ | ✘ |
+| OS, clientes a prazo, contas a pagar (cadastrar) | ✔ | ✔ (sem apagar OS nem baixar conta) |
+
+Como ligar: em `.env` (ou no painel da hospedagem) defina `APP_PASSWORD_LANCAMENTO` (mínimo 10 caracteres, diferente da senha do dono). Sem essa variável, só o dono entra, como antes. Quem entra com a senha de lançamento começa direto em **Compras** e vê uma etiqueta "Lançamento" no topo.
+
+![Visão de quem só lança: só Compras, Vendas, Contas e A prazo; sem Painel nem Metas; a ocorrência diz que só o dono aceita](img/perfil_00_lancamento.png)
+
+**Por que isso protege:** quem cadastra pode errar ou, no pior caso, ser enganado ou conivente; o sistema confere o que ela cadastra e o **dono é a última barreira**, com o veredito na tela. E o **DDA** (seção 13), importado só pelo dono, é a fonte que quem cadastra não alcança.
+
+**O que a trilha registra:** cada ação gravada em *Histórico* (cadastrar, ligar, pagar, liberar, aceitar, cancelar, consultar o portal, importar DDA) leva o perfil de quem fez. A senha é **por perfil, não por pessoa**: se mais de uma pessoa usar a de lançamento, o sistema sabe "lançamento", não "Giovana". Troque a senha quando alguém sair (e `SESSION_SECRET` derruba todas as sessões, veja `docs/08`).
+
+**Pagamento no banco (processo, fora do sistema).** O sistema só controla o que passa por ele; o dinheiro sai pelo banco. Peça ao gerente a **alçada/dupla alçada** no internet banking empresarial: um usuário que **inclui** pagamentos (pode ser a Giovana, para agilizar) e **só você** com a senha/token de **aprovar**. Assim ninguém paga um boleto que você não viu, mesmo fora do sistema. Confirme com o banco como o perfil se chama e o custo; a maioria tem.
+
+## 11. Notas e boletos no CNPJ da locadora ou da oficina do sócio
+
+Nem tudo sai no CNPJ da oficina: às vezes sai no da **locadora** e às vezes no da **oficina do Mateus**. Antes isso virava "nota/boleto emitido para outro CNPJ" (grave). Agora, em **Compras > Grupo**, você cadastra essas empresas (nome, CNPJ, se é locadora, oficina do sócio ou outra). O que muda:
+
+- **Não é mais alerta grave**: nota ou boleto no CNPJ de uma empresa cadastrada recebe a etiqueta "da IZICAR", e o veredito diz de quem é. **CNPJ que não é da oficina nem de empresa cadastrada continua grave** (é o sinal de boleto de outro cliente do fornecedor, ou de golpe).
+- **O boleto da locadora sai das contas a pagar da oficina.** Não entra no "total a pagar", na agenda nem nos alertas da oficina. Quando o CNPJ do pagador não está impresso, vale a empresa para a qual a nota foi emitida.
+- **Ao pagar, o sistema pergunta quem paga:** *a oficina paga* (o dinheiro sai da conta da oficina e o valor fica **a receber** da empresa) ou *a própria empresa paga* (só registra, o caixa da oficina não muda).
+- **Peça comprada no CNPJ da oficina e entregue a outra empresa** (destino **Outra empresa…** na nota): o custo dela também fica a receber da empresa.
+- **Acerto entre empresas** (Compras > Grupo): o que cada empresa deve à oficina e o que a oficina deve a ela, com **devolução total ou parcial**, data, e aviso quando passa do prazo combinado (padrão 30 dias; parâmetro em Metas). Devoluções entram no **saldo de caixa** no dia em que o dinheiro volta. Dá para registrar à mão um acerto que não veio de boleto nem de peça.
+
+![Compras > Grupo: o que a locadora deve à oficina, com prazo e devolução](img/grupo_01_entre_empresas.png)
+- **Peça de nota em nome da locadora aplicada em OS da oficina** gera um aviso de "conferir": a locadora pagou por algo que é custo da oficina. Registre o acerto (a oficina deve à locadora) ou marque como conferido.
+- Nota e boleto em nome de **empresas diferentes** (a nota para uma, o boleto cobrando outra) geram aviso para perguntar ao fornecedor qual está certo.
+
+![Boleto pago da locadora: aparece de quem é e que a oficina pagou](img/grupo_06_boleto_da_locadora.png)
+
+**Cuidado fiscal e contábil (converse com o contador).** Pagar conta de outra empresa vira **empréstimo entre empresas** (mútuo): pode ter **IOF**, precisa de contrato/registro e aparecer na contabilidade das duas. Isso é diferente de a oficina **vender** peça ou serviço à locadora (isso é venda, com nota). O sistema registra o que aconteceu; **como tratar** (mútuo, repasse, venda) é decisão do contador. Veja `docs/04-locadora.md` sobre a política de pagamento da IziCar para a oficina.
+
+## 12. Nota sem XML: como provar que a nota existe
+
+A Scherer manda XML; os fornecedores pequenos talvez só mandem o PDF (DANFE) ou o papel. Para esses:
+
+1. **Compras > Notas > + Nota sem XML.** Cole o **texto do PDF** da DANFE (abra, selecione tudo, copie) ou só a **chave de acesso** (44 números) e toque em **Ler**. O sistema valida a chave (dígito verificador, modelo 55) e preenche fornecedor (o CNPJ está dentro da chave), número, série, mês, **data de emissão**, **valor total** e o **CNPJ de quem comprou**. Confira tudo com a nota na mão. Se o texto trouxe vários valores, ele mostra os candidatos (o total da nota é o maior).
+2. **Consulte a chave no portal da NF-e** (botão **Abrir o portal da NF-e** na nota; é grátis e tem captcha): leia a **situação** e o **valor total da nota** e registre em **Registrar a consulta**.
+3. **Só a consulta do dono vale como prova**, e só se o valor do portal for igual ao da nota. Se a Giovana consultar, o sistema grava, mas a nota continua "sem comprovação" com a mensagem *"falta o dono repetir a consulta (leva um minuto)"*. É a separação de funções aplicada à nota sem XML.
+4. Se o portal mostrar **valor diferente**, **cancelada**, **denegada** ou **não encontrada**, o sistema diz exatamente isso no boleto ligado a ela (e a nota cancelada/denegada é cancelada aqui também).
+5. **Sem a chave a nota não prova nada.** Dá para digitar a nota e informar a chave depois (**Informar a chave**): o sistema confere se ela bate com o fornecedor, o número, a série e o mês.
+
+![Colando o texto da DANFE: o sistema valida a chave e avisa que a nota já existe](img/grupo_05_ler_danfe.png)
+
+![Na nota sem XML: abrir o portal, ler situação e valor, registrar a consulta](img/grupo_04_nota_sem_xml.png)
+
+**Dica que acaba com o problema:** o **contador** recebe o XML de toda nota de entrada (precisa dele para a escrituração). Peça o **pacote mensal de XML** das notas emitidas contra o CNPJ da oficina (e da locadora e da oficina do Mateus) e importe em **Importar XML**. Em **Compras > Fornecedores** há também uma mensagem pronta para **pedir ao fornecedor o XML e o número da OS no pedido**.
+
+O portal da NF-e é um serviço do governo e pode mudar o endereço ou a forma de consulta; se o botão não abrir a página certa, procure "consulta NF-e pela chave de acesso" no portal nacional (nfe.fazenda.gov.br).
+
+## 13. DDA: importar o arquivo do banco
+
+O banco da oficina tem **DDA**. Em **Compras > DDA** (só o dono) você importa o arquivo que o banco gera e o sistema compara com os boletos cadastrados:
+
+| Resultado | O que significa | Gravidade |
+|---|---|---|
+| **Batem** | O boleto cadastrado tem o mesmo código de barras, valor e vencimento do DDA, e **quem recebe (CNPJ)** é o fornecedor ou um recebedor autorizado. O banco confirma quem recebe: dispensa a conferência no app. | ✔ |
+| **Sem cadastro** | O banco mostra um boleto contra o CNPJ de vocês e **ninguém cadastrou**. Botão "Cadastrar este boleto" com os dados do banco. | Grave |
+| **Divergente** | Cadastrado diferente do banco (quem recebe, valor, vencimento, ou o banco mostra no DDA de outro CNPJ). | Grave |
+| **Fora do DDA** | Cadastrado e em aberto, mas o banco não mostra. Pode ser boleto sem registro, já pago, ainda não atualizado, ou falso. | Conferir |
+| **DDA desatualizado** | O último arquivo tem mais de 7 dias. | Lembrete |
+
+- **Formatos:** **CNAB 240 do DDA** (leiaute FEBRABAN, segmentos G e H, mais Y-03 quando existe; as posições do G e do H coincidem nos manuais do Itaú, do Santander e do Banrisul), **CSV/planilha** (o sistema acha as colunas pelo nome: beneficiário, CNPJ, valor, vencimento, linha digitável) ou **texto colado**. Pergunte ao gerente qual o banco oferece; se o seu banco só tem PDF, copie o texto e cole.
+- **Como cada banco entrega o arquivo** (pesquisa em manuais dos bancos; **não existe um botão universal de "exportar DDA"**, e na maioria é produto contratado com o gerente):
+
+| Banco | O que a pesquisa encontrou |
+|---|---|
+| **Itaú** | Arquivo **CNAB 240 de DDA** (operação "I", serviço 03), contratado com o gerente comercial; um lote por CNPJ (matriz e filiais) ou, se pedir, um lote só pela raiz do CNPJ. |
+| **Santander** | Lote "Captura de Títulos de Cobrança (Sacado Eletrônico)" dentro do **retorno de Pagamento a Fornecedores** (CNAB 240); pergunte se vem por padrão. |
+| **Banrisul** | Arquivo DDA FEBRABAN CNAB 240 pelo **Office Banking** (Arquivo > Receber arquivo); há convênio "Sacado DDA/BRR". |
+| **Sicredi** | Só como produto **"Varredura de DDA"** contratado com o gerente (layout não encontrado). |
+| **Bradesco** | Consulta no Net Empresa (DDA > Histórico de Boletos); arquivo só pelo **Pag-For "Rastreamento de Títulos DDA"**, em formato próprio de 500 posições que **este importador não lê**: use o texto da tela. |
+| **Banco do Brasil, Caixa, Sicoob** | Não achei layout nem exportação oficial; Sicoob depende da cooperativa. Pergunte ao gerente; senão, copie o texto da tela. |
+| **Inter, Cora, C6** | DDA só no aplicativo/web, sem exportação documentada: copie o texto da tela ou, no futuro, um serviço de leitura de DDA por API (custo e condições não verificados). |
+
+  Dois cuidados: **(1)** os bancos costumam **não mostrar a linha digitável** do boleto no DDA (a pessoa escolhe por valor, vencimento e beneficiário); sem o código de barras o sistema casa por **valor + vencimento + CNPJ de quem recebe**, mas então o boleto **não** é dispensado da conferência no app do banco; **(2)** o DDA é **por CNPJ pagador**: a locadora e a oficina do Mateus precisam de DDA próprio, cada um no seu banco.
+- Cada arquivo é **de um CNPJ**: o DDA da oficina fica separado do da locadora e do Mateus (ao importar, escolha de quem é; no CNAB vale o CNPJ do **lote**, e um arquivo com vários lotes é separado sozinho). Um arquivo de CNPJ que não é da oficina nem de empresa cadastrada é recusado.
+- O boleto casa com o título pela **chave do título** (banco + campo livre do código de barras, que contém o nosso número): se alguém mexeu no **valor** ou no **vencimento** do código e manteve o resto, o sistema reconhece que é o mesmo título e mostra a **divergência** (o caso típico de boleto adulterado).
+- O sistema **preenche sozinho** o CNPJ de quem recebe, o de quem paga e o número do documento dos boletos que batem com o DDA, **sem sobrescrever o que foi digitado** (se o digitado difere do banco, vira "divergente").
+- **Rotina sugerida:** exportar e importar **toda semana** (ou antes de cada rodada de pagamentos). Importar de novo o mesmo arquivo não duplica nada.
+- Limites: o DDA só lista boleto **registrado**; boleto de convênio/arrecadação (começa com 8) não passa por ele; e um boleto cadastrado no mesmo dia do arquivo ainda pode não estar lá.
+
+![Compras > DDA: o que bate, o que o banco mostra e ninguém cadastrou](img/grupo_02_dda.png)
+
+## 14. Perguntas para você (as respostas mudam o que construir a seguir)
+
+Respondidas até aqui: Scherer manda **XML** (as outras provavelmente não: seção 12); nota às vezes sai no CNPJ da **locadora** ou da oficina do **Mateus** (seção 11); o banco tem **DDA** e talvez exporte (seção 13); **a Giovana cadastra e você paga** (seção 10).
+
+1. **Qual é o banco** da oficina, da locadora e da oficina do Mateus? Cada um exporta o DDA de um jeito; com o nome do banco dá para testar o arquivo real.
+2. Quando a peça sai no CNPJ da locadora e vai para um carro da **oficina**: a locadora **cobra** a oficina (e como), ou fica "por conta da casa"? E o contrário (a oficina paga por conta da locadora): como devolvem, e em quantos dias? (O prazo de aviso está em 30 dias, mude em Metas.)
+3. A **Giovana** deve ver o **Painel** e o resultado da oficina? Hoje ela **não** vê (só Compras, Vendas, Contas e A prazo). Se preferir que veja, é mudança pequena.
+4. Algum fornecedor pequeno **não consegue** mandar XML e a nota só existe em papel? Para esses, o caminho é a consulta no portal feita por você (seção 12) ou o pacote de XML do contador.
+5. O seu banco tem **alçada** (quem inclui o pagamento não aprova)? Peça ao gerente; sem isso, o controle fora do sistema é só combinado.
+6. O contador já entrega o **pacote mensal de XML** das notas de entrada da oficina?
 7. Há compra **sem nota** (peça no balcão, "sem nota")? Como tratar: lançar como nota manual com motivo, ou proibir?

@@ -4,8 +4,13 @@
 import { abrirBanco } from '../src/db.js';
 import { hoje, somarDias, somarMeses, mesDe } from '../src/util.js';
 import { montarLinhaDigitavel } from '../src/boleto.js';
-import { importarNotaXml, alocar } from '../src/compras.js';
-import { xmlNfe } from '../test/helpers/nfe.js';
+import { importarNotaXml, alocar, criarNotaManual } from '../src/compras.js';
+import { criarEmpresa, criarAdiantamentoManual } from '../src/grupo.js';
+import { importarDda } from '../src/dda.js';
+import { reatribuirEmpresas, pagarBoleto } from '../src/boletos.js';
+import { cnabDda } from '../test/helpers/cnab.js';
+import { interpretarBoleto } from '../src/boleto.js';
+import { xmlNfe, chave as chaveNfe } from '../test/helpers/nfe.js';
 import { criarBoleto } from '../src/boletos.js';
 import { lerConfig, gravarConfig } from '../src/db.js';
 
@@ -76,3 +81,30 @@ criarBoleto(db, { ...comum, linha: linha(345, 4), beneficiario_cnpj: '2786575700
 const item = db.prepare('SELECT id FROM nota_itens WHERE nota_id = ? ORDER BY n_item').get(n1);
 if (algumasOs[0]) alocar(db, item.id, { destino: 'os', vendaId: algumasOs[0].id, quantidade: 1 });
 console.log(`Compras de demonstração: notas ${n1}, ${n2}, ${n3}; 4 boletos (2 conferem, 1 sem nota e sem recebedor, 1 com recebedor trocado).`);
+
+// ---- sócios e locadora: empresas do grupo, boleto no CNPJ da locadora pago pela oficina, nota sem XML e DDA do banco
+const CNPJ_LOCADORA_DEMO = '45997418000153';
+const CNPJ_MATEUS_DEMO = '33344455000183';
+const CNPJ_BAIRRO_DEMO = '55667788000186';
+const locadoraGrupo = criarEmpresa(db, { nome: 'IZICAR LOCADORA (demo)', cnpj: CNPJ_LOCADORA_DEMO, papel: 'locadora' }, cfg);
+const mateus = criarEmpresa(db, { nome: 'OFICINA DO MATEUS (demo)', cnpj: CNPJ_MATEUS_DEMO, papel: 'socio' }, cfg);
+// nota e boleto no CNPJ da locadora; a oficina pagou e fica a receber
+const nLoc = importarNotaXml(db, xmlNfe({ nNF: 18410, emitNome: 'DISTRIBUIDORA EXEMPLO LTDA', emitCnpj: CNPJ_DEMO, destCnpj: CNPJ_LOCADORA_DEMO, dhEmi: `${somarDias(h, -50)}T10:00:00-03:00`,
+  itens: [{ cProd: 'PN-0400', xProd: 'PNEU 185/65 R15', q: 4, vProd: 1480 }], dups: [{ venc: somarDias(h, -45), valor: 1480 }] })).nota_id;
+const bLoc = criarBoleto(db, { fornecedor_id: 1, linha: montarLinhaDigitavel({ banco: '341', valor: 1480, vencimento: somarDias(h, -45), campoLivre: 71234567 }), beneficiario_cnpj: CNPJ_DEMO, pagador_cnpj: CNPJ_LOCADORA_DEMO }, h, lerConfig(db));
+pagarBoleto(db, bLoc.boleto_id, { data: somarDias(h, -44), conferiuBanco: true, pagoPor: 'oficina' }, h, lerConfig(db));
+criarAdiantamentoManual(db, { empresa_id: mateus.id, sentido: 'a_receber', valor: 650, data: somarDias(h, -12), descricao: 'Peças entregues para a oficina do Mateus (pastilhas)', caixa: false }, h);
+reatribuirEmpresas(db);
+// nota sem XML (fornecedor pequeno): chave da DANFE, boleto ligado, ainda sem consulta no portal
+const chaveBairro = chaveNfe({ nNF: 5521, cnpj: CNPJ_BAIRRO_DEMO, aamm: somarDias(h, -4).slice(2, 4) + somarDias(h, -4).slice(5, 7), serie: 1 });
+criarNotaManual(db, { fornecedor_nome: 'AUTO PEÇAS DO BAIRRO', cnpj_emitente: CNPJ_BAIRRO_DEMO, numero: '5521', serie: '1', data_emissao: somarDias(h, -4), valor_total: 268.4, chave: chaveBairro, cnpj_destinatario: CNPJ_OFICINA_DEMO, duplicatas: [{ vencimento: somarDias(h, 10), valor: 268.4 }] });
+const bBairro = criarBoleto(db, { fornecedor_nome: 'AUTO PEÇAS DO BAIRRO', linha: montarLinhaDigitavel({ banco: '748', valor: 268.4, vencimento: somarDias(h, 10), campoLivre: 4455667 }), beneficiario_cnpj: CNPJ_BAIRRO_DEMO, pagador_cnpj: CNPJ_OFICINA_DEMO }, h, lerConfig(db));
+// DDA do banco: dois boletos batem, um aparece e ninguém cadastrou; o boleto sem nota não aparece
+const barras = (v, dias, campoLivre, banco = '341') => interpretarBoleto(montarLinhaDigitavel({ banco, valor: v, vencimento: somarDias(h, dias), campoLivre }), h).codigoBarras;
+const bol = db.prepare('SELECT codigo_barras, valor, vencimento FROM boletos WHERE id IN (1, 2, 5) ORDER BY id').all();
+const dd = (iso) => iso.split('-').reverse().join('');
+importarDda(db, { arquivo: 'dda_demo.rem', conteudo: cnabDda({ cnpjEmpresa: CNPJ_OFICINA_DEMO, geracao: dd(h), titulos: [
+  ...bol.filter((b) => b.codigo_barras).slice(0, 2).map((b) => ({ barras: b.codigo_barras, cnpjCedente: CNPJ_DEMO, nomeCedente: 'DISTRIBUIDORA EXEMPLO LTDA', vencimento: dd(b.vencimento), valor: b.valor, cnpjSacado: CNPJ_OFICINA_DEMO })),
+  { barras: barras(999.9, 6, 33445566), cnpjCedente: '27865757000102', nomeCedente: 'PECAS DO FULANO ME', vencimento: dd(somarDias(h, 6)), valor: 999.9, documento: '000931', cnpjSacado: CNPJ_OFICINA_DEMO },
+] }) }, h, lerConfig(db));
+console.log(`Sócios/locadora de demonstração: ${locadoraGrupo.nome}, ${mateus.nome}; nota sem XML e DDA importado (boleto ${bBairro.boleto_id}, nota da locadora ${nLoc}).`);

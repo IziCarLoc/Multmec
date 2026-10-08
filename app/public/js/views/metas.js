@@ -33,6 +33,7 @@ export async function metas(el) {
     h('div', { class: 'duas' },
       campo('Diferença aceita no valor (R$)', entrada('toleranciaValor', cfg.toleranciaValor, { inputmode: 'decimal' }), 'arredondamento de centavos'),
       campo('Alerta de preço acima de (%)', entrada('variacaoPrecoPct', (cfg.variacaoPrecoPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'sobre as últimas compras do mesmo item')),
+    campo('Dias para a outra empresa do grupo devolver o que a oficina pagou', entrada('diasDevolucaoAdiantamento', cfg.diasDevolucaoAdiantamento, { type: 'number', min: 1 }), 'Passou disso, aparece o aviso em Compras > Grupo'),
     h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -45,7 +46,7 @@ export async function metas(el) {
         saldoCaixaInicialData: d.saldoCaixaInicialData, saldoCaixaInicial: num(d.saldoCaixaInicial) ?? 0,
         feriados: d.feriados.split(',').map((x) => x.trim()).filter(Boolean),
         cnpjOficina: d.cnpjOficina, auditoriaDesde: d.auditoriaDesde, diasNotaSemDestino: Number(d.diasNotaSemDestino),
-        toleranciaValor: Number(String(d.toleranciaValor).replace(',', '.')), variacaoPrecoPct: perc(d.variacaoPrecoPct),
+        toleranciaValor: Number(String(d.toleranciaValor).replace(',', '.')), variacaoPrecoPct: perc(d.variacaoPrecoPct), diasDevolucaoAdiantamento: Number(d.diasDevolucaoAdiantamento),
       });
       toast('Configuração salva.'); metas(el);
     } catch (err) { toast(err.message, true); }

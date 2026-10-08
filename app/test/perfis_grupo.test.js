@@ -211,7 +211,9 @@ test('CNPJ desconhecido na nota e no boleto é grave; cadastrado como empresa do
     assert.equal(lista[0].empresa_nome, 'IZICAR LOCADORA');
     assert.match(lista[0].veredito.texto + lista[0].veredito.curto, /IZICAR/);
     // fora das contas a pagar da oficina
-    assert.equal((await dono('GET', '/api/saidas?mes=2026-10')).json.linhas.filter((s) => /Boleto/.test(s.descricao)).length, 0);
+    const contasMes = (await dono('GET', '/api/saidas?mes=2026-10')).json;
+    assert.equal(contasMes.linhas.filter((s) => /Boleto/.test(s.descricao)).length, 0);
+    assert.deepEqual(contasMes.outrasEmpresas, { qtd: 1, valor: 400, vencendo: 0 });          // avisa que existe boleto de outra empresa, fora da lista e dos totais
   } finally { ctx.fechar(); }
 });
 

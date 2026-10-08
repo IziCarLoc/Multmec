@@ -33,14 +33,17 @@
 
 ### Conferência de compras (boletos × notas × OS)
 
-22. **XML das notas:** a Scherer e os outros fornecedores mandam o arquivo `.xml` (e-mail, portal) ou só o PDF? Sem XML a prova da nota fica fraca (`09`, seções 5 e 7).
+22. ~~XML das notas~~ **Respondida:** a Scherer manda XML; os outros provavelmente não (`09`, seção 12: DANFE + consulta no portal, e o pacote de XML do contador).
 23. **Certificado digital A1** da oficina: existe? Com ele o sistema pode baixar sozinho as notas emitidas contra o CNPJ da oficina (fase 2).
-24. **DDA no banco** (lista dos boletos emitidos contra o CNPJ da oficina): está ativo? Dá para exportar? É a melhor fonte para achar boleto que ninguém cadastrou.
+24. ~~DDA no banco~~ **Respondida:** tem DDA e provavelmente exporta. **Falta saber o banco** (da oficina, da locadora e da oficina do Mateus) para testar o arquivo real (`09`, seção 13).
 25. O sistema de OS atual tem **entrada de nota**? Dá para exportar os itens (evita digitar duas vezes)?
-26. A Scherer coloca o **número da OS ou a placa** no pedido da nota (campo `xPed`)? Dá para pedir? E o **número da nota no campo "número do documento"** do boleto?
-27. **Quem cadastra** notas e boletos e **quem paga**? Separar as duas funções é o controle mais barato.
+26. A Scherer coloca o **número da OS ou a placa** no pedido da nota (campo `xPed`)? **Nunca pediram; talvez consigam.** Peça (mensagem pronta em Compras > Fornecedores > extrato) e o **número da nota no campo "número do documento"** do boleto.
+27. ~~Quem cadastra e quem paga~~ **Respondida:** a Giovana cadastra e o dono paga. Implementado (`09`, seção 10). **Pergunta nova:** a Giovana deve ver o Painel/resultado? Hoje não.
 28. Compras **sem nota** (balcão): como tratar? Nota manual com motivo, ou proibir?
 29. **CNPJ da oficina** e CNPJ/telefone de confirmação de cada fornecedor (para cadastrar em Compras > Fornecedores).
+30. **Locadora e oficina do Mateus** (nota/boleto no CNPJ delas): quando a peça é da locadora e vai para carro da oficina (ou o contrário), quem **cobra** quem, e em quantos dias devolvem? (Aviso de atraso padrão: 30 dias, em Metas.) E o **CNPJ de cada uma** para cadastrar em Compras > Grupo.
+31. **Alçada no banco** (quem inclui o pagamento não aprova): o banco da oficina tem? Peça ao gerente (`09`, seção 10).
+32. O **contador** já entrega o pacote mensal de **XML de entrada** das notas emitidas contra o CNPJ da oficina (e da locadora e do Mateus)?
 
 ## C. Decisões da política da locadora (aguardam você)
 
@@ -48,7 +51,7 @@ Estão marcadas como "decisão sua" em `04-locadora.md`: limite (R$ 12 mil), atr
 
 ## D. Para o contador
 
-A lista de conferência está em `06-pesquisa.md`, seção 8. Os três pontos de maior valor: **simulação do DAS a R$ 100 mil/mês com segregação de PIS/Cofins monofásico nas peças**, **obrigatoriedade da NFS-e Nacional em 01/11/2026 em Santa Maria**, e **tratamento do dinheiro que a oficina adianta para a locadora** (mútuo).
+A lista de conferência está em `06-pesquisa.md`, seção 8. Os três pontos de maior valor: **simulação do DAS a R$ 100 mil/mês com segregação de PIS/Cofins monofásico nas peças**, **obrigatoriedade da NFS-e Nacional em 01/11/2026 em Santa Maria**, e **tratamento do dinheiro que a oficina adianta para a locadora e para a oficina do sócio** (mútuo, possível **IOF**, contrato e contabilização nas duas empresas): leve o relatório de Compras > Grupo.
 
 ## E. O que eu não fiz (e por quê)
 

@@ -16,10 +16,14 @@ import { lerConfig } from './db.js';
 const semAcento = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const ddmmaaaa = (s) => {
   const m = /^(\d{2})(\d{2})(\d{4})$/.exec(s);
-  if (!m || m[3] === '0000') return null;
+  // 11111111 = "à vista" e 99999999 = "contra apresentação" no leiaute; ano fora de 2000-2100 não é vencimento
+  if (!m || Number(m[3]) < 2000 || Number(m[3]) > 2100) return null;
   const iso = `${m[3]}-${m[2]}-${m[1]}`;
-  return Number.isNaN(Date.parse(iso)) ? null : iso;
+  const d = new Date(`${iso}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== iso ? null : iso;
 };
+/** Banco + campo livre (posições 1-3 e 20-44 do código de barras): identifica o título mesmo que valor ou vencimento tenham sido mexidos. */
+export const chaveDoCodigo = (codigo) => (codigo && codigo.length === 44 ? `${codigo.slice(0, 3)}|${codigo.slice(19)}` : null);
 
 // ------------------------------------------------------------------ CNAB 240
 
@@ -31,14 +35,15 @@ function lerCnab240(linhas, hojeStr) {
   let cnpjArquivo = null;
   let geradoEm = null;
   let atual = null;
+  let loteCnpj = null;                                  // um lote por CNPJ (matriz e filiais): cada título pertence ao CNPJ do lote em que está
   for (const bruta of linhas) {
     const l = bruta.replace(/\x1a/g, '').padEnd(240);
     const tipo = l[7];
     if (tipo === '0') {
       if (l[17] === '2') cnpjArquivo = l.slice(18, 32);
       geradoEm = ddmmaaaa(l.slice(143, 151));
-    } else if (tipo === '1' && !cnpjArquivo && l[17] === '2') {
-      cnpjArquivo = l.slice(19, 33);
+    } else if (tipo === '1') {
+      loteCnpj = l[17] === '2' ? l.slice(19, 33) : null;
     } else if (tipo === '3') {
       const segmento = l[13];
       if (segmento === 'G') {
@@ -48,7 +53,7 @@ function lerCnab240(linhas, hojeStr) {
         const cedTipo = l[61];
         const cedDoc = l.slice(62, 77);
         atual = {
-          formato: 'cnab240', movimento, codigo_barras: codigo.length === 44 ? codigo : null,
+          formato: 'cnab240', movimento, lote_cnpj: loteCnpj, codigo_barras: codigo.length === 44 ? codigo : null,
           beneficiario_cnpj: cedTipo === '2' ? cedDoc.slice(1) : null, beneficiario_nome: l.slice(77, 107).trim() || null,
           vencimento: ddmmaaaa(l.slice(107, 115)), valor: Number(l.slice(115, 130)) / 100, moeda: l.slice(145, 147),
           numero_documento: l.slice(147, 162).trim() || null, emissao: ddmmaaaa(l.slice(181, 189)),
@@ -76,7 +81,7 @@ function lerCnab240(linhas, hojeStr) {
       } else { avisos.push(`Um código de barras do arquivo não passou na validação (${b.erros?.[0] ?? 'inválido'}).`); t.codigo_barras = null; }
     }
     if (!t.vencimento || !(t.valor > 0)) { avisos.push('Um título do arquivo veio sem vencimento ou sem valor e foi ignorado.'); continue; }
-    for (const k of ['beneficiario_cnpj', 'sacador_cnpj', 'pagador_cnpj']) if (t[k] && !cnpjValido(t[k])) t[k] = null;
+    for (const k of ['beneficiario_cnpj', 'sacador_cnpj', 'pagador_cnpj', 'lote_cnpj']) if (t[k] && !cnpjValido(t[k])) t[k] = null;
     saida.push(t);
   }
   return { formato: 'cnab240', titulos: saida, avisos, cnpjArquivo: cnpjArquivo && cnpjValido(cnpjArquivo) ? cnpjArquivo : null, geradoEm };
@@ -236,45 +241,56 @@ export function importarDda(db, { conteudo, arquivo = null, empresaId = null }, 
   if (empresaId && !db.prepare('SELECT 1 FROM empresas_grupo WHERE id = ?').get(empresaId)) throw new ErroValidacao('Empresa não encontrada.');
   const lido = lerExportacaoDda(conteudo, hojeStr);
   if (!lido.titulos.length) throw new ErroValidacao(`Não encontrei boletos neste arquivo. ${lido.avisos[0] ?? ''}`.trim());
-  const escopoEmpresa = escopoDoArquivo(db, cfg, lido.cnpjArquivo, empresaId);
-  const escopo = escopoEmpresa ?? 0;
-  let impId;
-  let novos = 0;
-  const preenchidos = [];
+  // o CNPJ de cada lote manda; arquivo sem CNPJ (CSV, texto) vale para a empresa que a pessoa escolheu (padrão: a oficina)
+  const cnpjs = [...new Set(lido.titulos.map((t) => t.lote_cnpj ?? lido.cnpjArquivo).filter(Boolean))];
+  const porEscopo = new Map();
+  for (const t of lido.titulos) {
+    const cnpj = t.lote_cnpj ?? lido.cnpjArquivo;
+    const esc = cnpj ? escopoDoArquivo(db, cfg, cnpj, cnpjs.length === 1 ? empresaId : null) : (empresaId ?? null);
+    (porEscopo.get(esc) ?? porEscopo.set(esc, []).get(esc)).push(t);
+  }
+  const resultado = { importacoes: [], preenchidos: [], novos: 0 };
   db.transaction(() => {
-    // a data do envio é a "de hoje" do sistema (a mesma que o resto usa), não a do relógio do banco de dados
-    impId = Number(db.prepare('INSERT INTO dda_importacoes (em, empresa_id, arquivo, formato, gerado_em, qtd, importado_por) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(`${hojeStr} ${new Date().toISOString().slice(11, 19)}`, escopoEmpresa, arquivo ? String(arquivo).slice(0, 120) : null, lido.formato, lido.geradoEm, lido.titulos.length, perfilAtual()).lastInsertRowid);
-    const achar = db.prepare('SELECT id FROM dda_titulos WHERE escopo = ? AND chave = ?');
-    const ins = db.prepare(`INSERT INTO dda_titulos (empresa_id, escopo, chave, codigo_barras, banco, valor, vencimento, beneficiario_cnpj, beneficiario_nome, sacador_cnpj, sacador_nome,
-        pagador_cnpj, numero_documento, emissao, primeira_importacao_id, ultima_importacao_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const upd = db.prepare(`UPDATE dda_titulos SET ultima_importacao_id = ?, banco = COALESCE(?, banco), beneficiario_cnpj = COALESCE(?, beneficiario_cnpj), beneficiario_nome = COALESCE(?, beneficiario_nome),
-        sacador_cnpj = COALESCE(?, sacador_cnpj), sacador_nome = COALESCE(?, sacador_nome), pagador_cnpj = COALESCE(?, pagador_cnpj), numero_documento = COALESCE(?, numero_documento) WHERE id = ?`);
-    for (const t of lido.titulos) {
-      const chave = chaveDoTitulo(t);
-      const ja = achar.get(escopo, chave);
-      if (ja) upd.run(impId, t.banco ?? null, t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null, t.sacador_cnpj ?? null, t.sacador_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, ja.id);
-      else {
-        ins.run(escopoEmpresa, escopo, chave, t.codigo_barras ?? null, t.banco ?? null, r2(t.valor), t.vencimento, t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null,
-          t.sacador_cnpj ?? null, t.sacador_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, t.emissao ?? null, impId, impId);
-        novos++;
+    for (const [escopoEmpresa, titulos] of porEscopo) {
+      const escopo = escopoEmpresa ?? 0;
+      let novos = 0;
+      // a data do envio é a "de hoje" do sistema (a mesma que o resto usa), não a do relógio do banco de dados
+      const impId = Number(db.prepare('INSERT INTO dda_importacoes (em, empresa_id, arquivo, formato, gerado_em, qtd, importado_por) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(`${hojeStr} ${new Date().toISOString().slice(11, 19)}`, escopoEmpresa, arquivo ? String(arquivo).slice(0, 120) : null, lido.formato, lido.geradoEm, titulos.length, perfilAtual()).lastInsertRowid);
+      const achar = db.prepare('SELECT id FROM dda_titulos WHERE escopo = ? AND chave = ?');
+      const ins = db.prepare(`INSERT INTO dda_titulos (empresa_id, escopo, chave, codigo_barras, banco, valor, vencimento, beneficiario_cnpj, beneficiario_nome, sacador_cnpj, sacador_nome,
+          pagador_cnpj, numero_documento, emissao, primeira_importacao_id, ultima_importacao_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const upd = db.prepare(`UPDATE dda_titulos SET ultima_importacao_id = ?, banco = COALESCE(?, banco), beneficiario_cnpj = COALESCE(?, beneficiario_cnpj), beneficiario_nome = COALESCE(?, beneficiario_nome),
+          sacador_cnpj = COALESCE(?, sacador_cnpj), sacador_nome = COALESCE(?, sacador_nome), pagador_cnpj = COALESCE(?, pagador_cnpj), numero_documento = COALESCE(?, numero_documento) WHERE id = ?`);
+      for (const t of titulos) {
+        const chave = chaveDoTitulo(t);
+        const ja = achar.get(escopo, chave);
+        if (ja) upd.run(impId, t.banco ?? null, t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null, t.sacador_cnpj ?? null, t.sacador_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, ja.id);
+        else {
+          ins.run(escopoEmpresa, escopo, chave, t.codigo_barras ?? null, t.banco ?? null, r2(t.valor), t.vencimento, t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null,
+            t.sacador_cnpj ?? null, t.sacador_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, t.emissao ?? null, impId, impId);
+          novos++;
+        }
       }
-    }
-    db.prepare('UPDATE dda_importacoes SET novos = ? WHERE id = ?').run(novos, impId);
-    // o banco informa quem recebe e quem paga: preenche o que quem cadastrou deixou em branco (nunca sobrescreve o que foi digitado)
-    const preencher = db.prepare(`UPDATE boletos SET beneficiario_cnpj = COALESCE(beneficiario_cnpj, ?), beneficiario_nome = COALESCE(beneficiario_nome, ?), pagador_cnpj = COALESCE(pagador_cnpj, ?),
-        numero_documento = COALESCE(numero_documento, ?) WHERE id = ? AND (beneficiario_cnpj IS NULL OR pagador_cnpj IS NULL OR beneficiario_nome IS NULL OR numero_documento IS NULL)`);
-    for (const t of lido.titulos) {
-      if (!t.codigo_barras) continue;
-      const b = db.prepare("SELECT id FROM boletos WHERE codigo_barras = ? AND situacao <> 'cancelado'").get(t.codigo_barras);
-      if (b && preencher.run(t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, b.id).changes) {
-        preenchidos.push(b.id);
-        registrar(db, 'dda_preencheu', 'boleto', b.id, { beneficiario: t.beneficiario_cnpj, pagador: t.pagador_cnpj });
+      db.prepare('UPDATE dda_importacoes SET novos = ? WHERE id = ?').run(novos, impId);
+      // o banco informa quem recebe e quem paga: preenche o que quem cadastrou deixou em branco (nunca sobrescreve o que foi digitado)
+      const preencher = db.prepare(`UPDATE boletos SET beneficiario_cnpj = COALESCE(beneficiario_cnpj, ?), beneficiario_nome = COALESCE(beneficiario_nome, ?), pagador_cnpj = COALESCE(pagador_cnpj, ?),
+          numero_documento = COALESCE(numero_documento, ?) WHERE id = ? AND (beneficiario_cnpj IS NULL OR pagador_cnpj IS NULL OR beneficiario_nome IS NULL OR numero_documento IS NULL)`);
+      for (const t of titulos) {
+        if (!t.codigo_barras) continue;
+        const b = db.prepare("SELECT id FROM boletos WHERE codigo_barras = ? AND situacao <> 'cancelado' AND COALESCE(empresa_id, 0) = ?").get(t.codigo_barras, escopo);
+        if (b && preencher.run(t.beneficiario_cnpj ?? null, t.beneficiario_nome ?? null, t.pagador_cnpj ?? null, t.numero_documento ?? null, b.id).changes) {
+          resultado.preenchidos.push(b.id);
+          registrar(db, 'dda_preencheu', 'boleto', b.id, { beneficiario: t.beneficiario_cnpj, pagador: t.pagador_cnpj });
+        }
       }
+      registrar(db, 'dda_importado', 'dda', impId, { arquivo, formato: lido.formato, qtd: titulos.length, novos, empresa_id: escopoEmpresa });
+      resultado.importacoes.push({ id: impId, empresa_id: escopoEmpresa, qtd: titulos.length, novos });
+      resultado.novos += novos;
     }
-    registrar(db, 'dda_importado', 'dda', impId, { arquivo, formato: lido.formato, qtd: lido.titulos.length, novos, empresa_id: escopoEmpresa });
   })();
-  return { importacao_id: impId, formato: lido.formato, qtd: lido.titulos.length, novos, avisos: lido.avisos, empresa_id: escopoEmpresa, preenchidos, cruzamento: cruzarDda(db, hojeStr, cfg) };
+  return { importacao_id: resultado.importacoes[0].id, importacoes: resultado.importacoes, formato: lido.formato, qtd: lido.titulos.length, novos: resultado.novos, avisos: lido.avisos,
+    empresa_id: resultado.importacoes[0].empresa_id, preenchidos: resultado.preenchidos, cruzamento: cruzarDda(db, hojeStr, cfg) };
 }
 
 const mesmoValor = (a, b, tol) => Math.abs(a - b) <= tol;
@@ -303,8 +319,11 @@ export function cruzarDda(db, hojeStr, cfg = lerConfig(db)) {
     const dosEscopo = boletos.filter((b) => (b.empresa_id ?? 0) === escopo);
     for (const t of titulos) {
       // primeiro pelo código de barras (em qualquer empresa: boleto da locadora cadastrado como da oficina é divergência, não "sem cadastro")
-      let b = t.codigo_barras ? boletos.find((x) => x.codigo_barras === t.codigo_barras) : null;
-      if (!b) b = dosEscopo.find((x) => !casados.has(x.id) && !x.codigo_barras && x.vencimento === t.vencimento && mesmoValor(x.valor, t.valor, tol)
+      // pela chave do título (banco + campo livre do código de barras): se mexeram no valor ou no vencimento do código, o título continua o mesmo e a diferença aparece
+      const chaveT = chaveDoCodigo(t.codigo_barras);
+      let b = chaveT ? boletos.find((x) => chaveDoCodigo(x.codigo_barras) === chaveT && (x.empresa_id ?? 0) === escopo) ?? boletos.find((x) => chaveDoCodigo(x.codigo_barras) === chaveT) : null;
+      // título sem código de barras (muitos bancos não mostram): valor + vencimento (+ CNPJ de quem recebe, quando os dois têm)
+      if (!b && !t.codigo_barras) b = dosEscopo.find((x) => !casados.has(x.id) && x.vencimento === t.vencimento && mesmoValor(x.valor, t.valor, tol)
         && (!t.beneficiario_cnpj || !x.beneficiario_cnpj || t.beneficiario_cnpj === x.beneficiario_cnpj));
       if (!b) { out.sem_cadastro.push({ titulo: t, escopo }); continue; }
       casados.add(b.id);
@@ -315,7 +334,7 @@ export function cruzarDda(db, hojeStr, cfg = lerConfig(db)) {
       if ((b.empresa_id ?? 0) !== escopo) difs.push('empresa: o banco mostra este boleto no DDA de outro CNPJ');
       const perm = permitidos(b);
       // o banco diz quem recebe; se não for o fornecedor, a regra de beneficiário do boleto (que passa a usar o CNPJ do banco) já acusa
-      const beneficiarioOk = !!t.beneficiario_cnpj && perm.size > 0 && perm.has(t.beneficiario_cnpj);
+      const beneficiarioOk = !!t.beneficiario_cnpj && perm.size > 0 && perm.has(t.beneficiario_cnpj) && !!t.codigo_barras && t.codigo_barras === b.codigo_barras;
       if (difs.length) out.diverge.push({ titulo: t, boleto: b, diferencas: difs });
       else out.ok.push({ titulo: t, boleto: b, beneficiarioOk });
     }

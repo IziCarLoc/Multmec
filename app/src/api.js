@@ -337,7 +337,10 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       };
     });
     const soma = (f) => r2(linhas.filter(f).reduce((a, s) => a + s.valor, 0));
-    res.json({ mes: ym, linhas, totais: { total: soma(() => true), pagas: soma((s) => s.pago_em), aPagar: soma((s) => !s.pago_em), atrasadas: soma((s) => s.situacao === 'atrasada') } });
+    // boletos de outras empresas do grupo não entram nestas contas (nem nos totais), mas alguém precisa pagá-los: aviso para não esquecer
+    const g = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(valor), 0) AS v, COALESCE(SUM(vencimento <= ?), 0) AS venc FROM boletos WHERE situacao = 'aberto' AND empresa_id IS NOT NULL").get(somarDias(h, 7));
+    res.json({ mes: ym, linhas, totais: { total: soma(() => true), pagas: soma((s) => s.pago_em), aPagar: soma((s) => !s.pago_em), atrasadas: soma((s) => s.situacao === 'atrasada') },
+      outrasEmpresas: { qtd: g.n, valor: r2(g.v), vencendo: g.venc } });
   }));
   const saidaDe = (b, atual = {}) => {
     const cat = b.categoriaId ?? atual.categoria_id;

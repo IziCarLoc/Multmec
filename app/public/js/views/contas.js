@@ -75,6 +75,7 @@ export async function contas(el, estado) {
       h('div', null, h('span', null, 'Já pago'), h('b', { class: 'bom' }, brl0(d.totais.pagas))),
       h('div', null, h('span', null, 'Falta pagar'), h('b', null, brl0(d.totais.aPagar))),
       h('div', null, h('span', null, 'Atrasado'), h('b', { class: d.totais.atrasadas > 0 ? 'ruim' : '' }, brl0(d.totais.atrasadas)))),
+    d.outrasEmpresas?.qtd ? h('section', { class: 'cartao' }, h('p', { class: 'dica' }, `Não estão nesta lista: ${d.outrasEmpresas.qtd} boleto(s) em aberto de outras empresas do grupo (${brl0(d.outrasEmpresas.valor)}${d.outrasEmpresas.vencendo ? `, ${d.outrasEmpresas.vencendo} vencendo em 7 dias ou já vencido(s)` : ''}). `, h('a', { href: '#/compras' }, 'Ver em Compras'))) : null,
     h('div', { class: 'botoes-topo' }, ehDono() ? h('button', { onclick: () => modelosFixos(recarregar) }, 'Modelos fixos') : h('span', { class: 'dica' }, 'Quem paga é o dono.'), h('button', { class: 'primario', onclick: () => formConta(null, recarregar) }, '+ Nova conta')),
     grupo('Atrasadas', d.linhas.filter((s) => s.situacao === 'atrasada'), 'atrasada'),
     grupo('A pagar', d.linhas.filter((s) => s.situacao === 'a_pagar'), ''),

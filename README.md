@@ -17,7 +17,7 @@ Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, 
 | [`docs/06-pesquisa.md`](docs/06-pesquisa.md) | Pesquisa com fontes e grau de confiança (benchmarks, tributário, cliente-chave) |
 | [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md) | Perguntas para o dono e o que ficou de fora |
 | [`docs/08-hospedagem.md`](docs/08-hospedagem.md) | Como colocar no ar, backup e segurança |
-| [`docs/09-conciliacao-compras.md`](docs/09-conciliacao-compras.md) | Conferência de compras: nota fiscal × boleto × OS, auditoria e trava de pagamento |
+| [`docs/09-conciliacao-compras.md`](docs/09-conciliacao-compras.md) | Conferência de compras: nota fiscal × boleto × OS, auditoria e trava de pagamento; quem lança × quem paga; empresas do grupo (locadora, sócio); nota sem XML; DDA do banco |
 | [`app/`](app) | O sistema (Node.js + SQLite), com testes |
 | [`analise/`](analise) | Scripts em Python que geram os números e gráficos do diagnóstico |
 
@@ -27,13 +27,13 @@ Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, 
 cd app
 npm install
 npm run demo     # banco de demonstração com dados inventados
-npm start        # http://localhost:3000  (senha de desenvolvimento: multmec)
+npm start        # http://localhost:3000  (senha de desenvolvimento: multmec; para testar o perfil de lançamento: APP_PASSWORD_LANCAMENTO=lancar npm start)
 npm test         # 127 testes
 ```
 
 Com os dados reais: exporte a aba SERVIÇOS da planilha como CSV e use a tela **Importar** (ou `npm run importar -- servicos.csv --corte AAAA-MM-DD`).
 
-Em produção, o sistema **recusa subir sem `APP_PASSWORD`** (mínimo 10 caracteres). Veja [`docs/08-hospedagem.md`](docs/08-hospedagem.md).
+Em produção, o sistema **recusa subir sem `APP_PASSWORD`** (mínimo 10 caracteres). Para quem só lança notas e boletos, defina também `APP_PASSWORD_LANCAMENTO` (perfil que não paga). Veja [`docs/08-hospedagem.md`](docs/08-hospedagem.md).
 
 ## Regenerar a análise
 

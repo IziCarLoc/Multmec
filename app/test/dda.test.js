@@ -225,3 +225,69 @@ test('DDA antigo vira lembrete; boleto cadastrado no mesmo dia do arquivo não �
   const limpo = abrirBanco(':memory:');
   assert.ok(!ocorrencias(limpo, HOJE, lerConfig(limpo)).some((o) => o.tipo.startsWith('dda_') || o.tipo === 'boleto_fora_do_dda'));
 });
+
+test('CNAB 240 com um lote por CNPJ (matriz e filiais ou outra empresa): cada título vai para o dono do lote', () => {
+  const db = abrirBanco(':memory:');
+  db.prepare("UPDATE config SET valor = ? WHERE chave = 'cnpj_oficina'").run(CNPJ_OFICINA);
+  const emp = db.prepare("INSERT INTO empresas_grupo (nome, cnpj, papel) VALUES ('LOCADORA', ?, 'locadora')").run(CNPJ_LOCADORA).lastInsertRowid;
+  const l1 = linhaDigitavel({ valor: 100, vencimento: '2026-10-30' });
+  const l2 = linhaDigitavel({ valor: 200, vencimento: '2026-10-31' });
+  const arquivo = cnabDda({ cnpjEmpresa: CNPJ_OFICINA, lotes: [
+    { cnpj: CNPJ_OFICINA, titulos: [{ barras: barrasDe(l1), cnpjCedente: CNPJ_FORNECEDOR, nomeCedente: 'A', vencimento: '30102026', valor: 100 }] },
+    { cnpj: CNPJ_LOCADORA, titulos: [{ barras: barrasDe(l2), cnpjCedente: CNPJ_FORNECEDOR, nomeCedente: 'B', vencimento: '31102026', valor: 200 }] },
+  ] });
+  const lido = lerExportacaoDda(arquivo, HOJE);
+  assert.deepEqual(lido.titulos.map((t) => t.lote_cnpj), [CNPJ_OFICINA, CNPJ_LOCADORA]);
+  const r = importarDda(db, { conteudo: arquivo, empresaId: emp }, HOJE, lerConfig(db));        // a escolha da pessoa não vale quando o arquivo tem mais de um CNPJ
+  assert.equal(r.importacoes.length, 2);
+  assert.deepEqual(r.importacoes.map((i) => i.empresa_id).sort(), [null, Number(emp)].sort());
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dda_titulos WHERE escopo = 0').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dda_titulos WHERE escopo = ?').get(emp).n, 1);
+});
+
+test('vencimento "à vista" (11111111) ou "contra apresentação" (99999999) no CNAB não vira data inventada', () => {
+  const l = linhaDigitavel({ valor: 100, vencimento: '2026-10-30' });
+  const r = lerExportacaoDda(cnabDda({ cnpjEmpresa: CNPJ_OFICINA, titulos: [
+    { barras: barrasDe(l), cnpjCedente: CNPJ_FORNECEDOR, nomeCedente: 'A', vencimento: '11111111', valor: 100 },
+    { barras: barrasDe(linhaDigitavel({ valor: 50, vencimento: '2026-11-10' })), cnpjCedente: CNPJ_FORNECEDOR, nomeCedente: 'B', vencimento: '99999999', valor: 50 },
+  ] }), HOJE);
+  assert.deepEqual(r.titulos.map((t) => t.vencimento), ['2026-10-30', '2026-11-10']);        // vale o vencimento do código de barras
+});
+
+test('mexeram no valor do código de barras mantendo o campo livre: o título é o mesmo e a diferença aparece como divergência grave', async () => {
+  const { dono, lanc, fechar } = await subir();
+  try {
+    await dono('PUT', '/api/config', { cnpjOficina: CNPJ_OFICINA });
+    const verdadeiro = linhaDigitavel({ valor: 300, vencimento: '2026-10-25', livre: 1234567 });
+    const adulterado = linhaDigitavel({ valor: 3000, vencimento: '2026-10-25', livre: 1234567 });          // mesmo campo livre, valor 10x
+    const b = (await lanc('POST', '/api/compras/boletos', { linha: adulterado, fornecedorNome: 'DISTRIBUIDORA TESTE LTDA', beneficiarioCnpj: CNPJ_FORNECEDOR, pagadorCnpj: CNPJ_OFICINA })).json;
+    await dono('POST', '/api/compras/dda/importar', { conteudo: cnabDda({ cnpjEmpresa: CNPJ_OFICINA, titulos: [{ barras: barrasDe(verdadeiro), cnpjCedente: CNPJ_FORNECEDOR, nomeCedente: 'DISTRIBUIDORA TESTE LTDA', vencimento: '25102026', valor: 300 }] }) });
+    const det = (await dono('GET', `/api/compras/boletos/${b.boleto_id}`)).json;
+    const oc = det.ocorrencias.find((o) => o.tipo === 'dda_diverge');
+    assert.ok(oc, 'devia acusar divergência');
+    assert.match(oc.detalhe, /valor: cadastrado 3000\.00, banco 300\.00/);
+    assert.equal(det.veredito.nivel, 'ruim');
+    assert.notEqual(det.boleto.dda, 'confirmado');
+    const lista = (await dono('GET', '/api/compras/dda')).json;
+    assert.equal(lista.semCadastro.length, 0);                       // não é "sem cadastro": é o mesmo título, adulterado
+    assert.equal(lista.divergentes.length, 1);
+  } finally { fechar(); }
+});
+
+test('DDA sem código de barras (só valor, vencimento e CNPJ): casa por esses três e não dispensa a conferência no app do banco', async () => {
+  const { dono, lanc, fechar } = await subir();
+  try {
+    await dono('PUT', '/api/config', { cnpjOficina: CNPJ_OFICINA });
+    await dono('POST', '/api/compras/notas/xml', { xmls: [xmlNfe({ nNF: 810, itens: [{ cProd: 'A', xProd: 'DISCO', q: 1, vProd: 450 }], dups: [{ venc: '2026-10-26', valor: 450 }] })] });
+    await dono('PUT', `/api/compras/fornecedores/${(await dono('GET', '/api/compras/fornecedores')).json[0].id}`, { confirmado: true });
+    const b = (await lanc('POST', '/api/compras/boletos', { linha: linhaDigitavel({ valor: 450, vencimento: '2026-10-26' }), fornecedorNome: 'DISTRIBUIDORA TESTE LTDA', beneficiarioCnpj: CNPJ_FORNECEDOR, pagadorCnpj: CNPJ_OFICINA })).json;
+    const csv = 'Beneficiário;CNPJ;Vencimento;Valor\n"DISTRIBUIDORA TESTE LTDA";11.222.333/0001-81;26/10/2026;"450,00"\n';
+    const r = await dono('POST', '/api/compras/dda/importar', { conteudo: csv, arquivo: 'dda.csv' });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.ok, 1);
+    assert.equal(r.json.semCadastro, 0);
+    const det = (await dono('GET', `/api/compras/boletos/${b.boleto_id}`)).json;
+    assert.equal(det.boleto.dda, 'no_dda');                        // aparece no DDA, mas sem o código de barras não há como provar que é o mesmo papel
+    assert.equal((await dono('POST', `/api/compras/boletos/${b.boleto_id}/pagar`, {})).status, 409);        // ainda pede para conferir no app do banco
+  } finally { fechar(); }
+});

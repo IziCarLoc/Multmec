@@ -40,6 +40,8 @@ Cenários: **baixo ~R$ 86 mil, base ~R$ 93 mil, alto ~R$ 103 mil**. Sendo honest
 
 **Novo: conferência de compras** (`09-conciliacao-compras.md`). Você importa o XML da nota e cadastra o boleto pela linha digitável; o sistema liga **nota × boleto × peça × OS**, avisa de boleto sem nota, de beneficiário ou pagador diferente, de valor a mais e de duplicidade, e **pede justificativa antes de pagar** boleto com problema grave. Antes de pagar, o sistema exige conferir **no app do banco** quem recebe. Limite honesto: o CNPJ de quem recebe não vai no código de barras, então alguém precisa lê-lo no PDF ou no app do banco (ou conferir pelo DDA do banco); e o sistema não consulta a SEFAZ sozinho.
 
+**Novo (2ª rodada):** a Giovana lança e o dono paga, com duas senhas (**quem só lança não paga, não libera boleto com problema e não vê o resultado da oficina**); notas e boletos no CNPJ da **locadora** ou da **oficina do Mateus** deixam de ser alarme falso e viram **acerto entre empresas** (quanto cada uma deve à oficina, com prazo e devolução); **nota sem XML** é provada pela chave consultada no portal da NF-e (só a consulta do dono vale); e o **DDA do banco** pode ser importado para achar boleto que ninguém cadastrou ou que foi cadastrado diferente do que o banco mostra (seções 10 a 13 de `09-conciliacao-compras.md`).
+
 As telas (com dados inventados) estão em `05-sistema.md`. Testei também com a sua planilha real importada, mas esses dados não foram guardados no repositório.
 
 ## O que eu preciso de você (as 8 principais, completas em `07`)

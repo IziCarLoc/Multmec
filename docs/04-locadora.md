@@ -129,3 +129,10 @@ Os três primeiros já aparecem no protótipo; prazo médio de recebimento e a c
 | Semana 2 | Primeiro fechamento de sexta com o texto do sistema |
 | Semana 3 | Contrato de uma página assinado; conciliação do mês |
 | Mês 2 | Orçamento de manutenção da frota na locadora e provisão semanal |
+
+
+## Acerto de contas no sistema (peças e boletos no CNPJ da locadora)
+
+Quando uma nota ou boleto sai no CNPJ da locadora (ou da oficina do sócio) e a **oficina paga**, esse dinheiro é **empréstimo da oficina para a outra empresa**: exatamente a confusão patrimonial descrita acima. O sistema não impede de acontecer (a realidade da oficina é essa), mas **deixa de esconder**: em **Compras > Grupo** cada real que a oficina pagou por outra empresa fica como **a receber**, com data, prazo (aviso aos 30 dias) e devolução parcial ou total, e entra no saldo de caixa no dia em que voltar. A conta da locadora **não entra** no resultado nem nas contas a pagar da oficina.
+
+Isso complementa, não substitui, a política desta página: o **limite** e a **trava** do cliente "locadora" (aba A prazo) controlam o que ela deve por OS; o acerto entre empresas controla o que a oficina **pagou por ela** fora das OS. Some os dois para saber quanto da oficina está na mão da locadora. Como tratar isso na contabilidade (mútuo, IOF, repasse, venda de peça) é com o contador: leve o relatório de **Compras > Grupo**.

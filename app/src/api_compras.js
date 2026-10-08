@@ -429,7 +429,10 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     });
     const ocs = ocorrenciasDoBoleto(db, id, hoje(), cfg);
     b.dda = statusDdaPorBoleto(db, hoje(), cfg).get(id) ?? null;
-    res.json({ boleto: { ...b, banco_nome: nomeBanco(b.banco) }, conciliacoes: conc, rastro, sugestoes: conc.length ? [] : sugerirNotas(db, b, cfg), ocorrencias: ocs, veredito: vereditoDoBoleto(b, ocs, cfg), historico: historico(db, 'boleto', id) });
+    // se a oficina pagou um boleto de outra empresa do grupo, o acerto que ficou a receber (só o dono vê valores entre empresas)
+    const acerto = ehDono(req) ? db.prepare(`SELECT a.id, a.valor, e.nome AS empresa, a.valor - COALESCE((SELECT SUM(x.valor) FROM adiantamento_baixas x WHERE x.adiantamento_id = a.id), 0) AS saldo
+        FROM adiantamentos a JOIN empresas_grupo e ON e.id = a.empresa_id WHERE a.boleto_id = ?`).get(id) ?? null : null;
+    res.json({ boleto: { ...b, banco_nome: nomeBanco(b.banco) }, conciliacoes: conc, rastro, sugestoes: conc.length ? [] : sugerirNotas(db, b, cfg), acerto: acerto ? { ...acerto, saldo: r2(acerto.saldo) } : null, ocorrencias: ocs, veredito: vereditoDoBoleto(b, ocs, cfg), historico: historico(db, 'boleto', id) });
   }));
 
   r.post('/boletos', wrap((req, res) => {
