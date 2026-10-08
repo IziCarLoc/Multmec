@@ -64,7 +64,8 @@ function blocoCompras(p) {
   if (!c) return null;
   const tudoCerto = c.alta === 0 && c.media === 0;
   return cartao('Conferência de compras',
-    tudoCerto ? h('p', { class: 'bom' }, 'Nenhuma ocorrência aberta nas notas e boletos.') : h('div', { class: 'linhas' },
+    !c.comecou ? h('p', { class: 'aviso-texto' }, 'A conferência ainda não começou: informe o CNPJ da oficina em Metas e cadastre os boletos e notas dos fornecedores. Hoje, nada está sendo conferido.')
+      : tudoCerto ? h('p', { class: 'bom' }, 'Nenhuma ocorrência aberta nas notas e boletos.') : h('div', { class: 'linhas' },
       h('div', null, h('span', null, 'Graves (boletos/notas suspeitos)'), h('b', { class: c.alta ? 'ruim' : 'bom' }, String(c.alta))),
       h('div', null, h('span', null, 'Para conferir'), h('b', null, String(c.media))),
       c.valorEmRisco ? h('div', null, h('span', null, 'Valor em risco'), h('b', { class: 'ruim' }, brl0(c.valorEmRisco))) : null),

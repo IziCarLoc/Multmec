@@ -58,7 +58,7 @@ async function abaBoletos(el, estado, recarregar) {
       h('div', { class: 'acoes' }, h('button', { onclick: acao(() => modalBoletosEmLote(recarregar)) }, 'Colar vários'), h('button', { class: 'primario', onclick: acao(() => modalNovoBoleto(recarregar)) }, '+ Boleto'))),
     lista.length ? h('div', { class: 'lista' }, lista.map((b) => h('button', { class: 'linha-os', onclick: acao(() => modalBoleto(b.id, recarregar)) },
       h('div', null, h('b', null, b.fornecedor ?? 'Fornecedor não informado')),
-      h('div', { class: 'sub' }, selo(b.veredito.texto.length > 46 ? `${b.veredito.texto.slice(0, 44)}…` : b.veredito.texto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[b.veredito.nivel])),
+      h('div', { class: 'sub' }, selo(b.veredito.curto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[b.veredito.nivel])),
       h('div', { class: 'sub' }, `vence ${dataBR(b.vencimento)}`, selo(b.situacao, b.situacao === 'pago' ? 'ok' : b.situacao === 'aberto' ? 'info' : 'neutro'), b.ligacoes ? null : selo('sem nota', 'critico')),
       h('div', { class: 'valores' }, h('b', null, brl(b.valor)), h('span', null, b.numero_documento ? `doc ${b.numero_documento}` : `${b.ocorrencias} ocorrência(s)`))))) : vazio('Nenhum boleto neste filtro. Cadastre cada boleto que chegar com "+ Boleto".'));
 }

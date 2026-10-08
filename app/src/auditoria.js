@@ -360,14 +360,14 @@ export function desfazerAceite(db, chave) {
  * "ok" quer dizer: nota com prova, recebedor e pagador batendo, nada grave aberto. Ainda assim, antes de pagar se olha o app do banco.
  */
 export function vereditoDoBoleto(b, ocs, cfg) {
-  if (b.situacao === 'pago') return { nivel: 'neutro', texto: 'Pago' };
-  if (b.situacao === 'cancelado' || b.situacao === 'contestado') return { nivel: 'neutro', texto: b.situacao === 'contestado' ? 'Contestado: não pagar' : 'Cancelado' };
+  if (b.situacao === 'pago') return { nivel: 'neutro', texto: 'Pago', curto: 'Pago' };
+  if (b.situacao === 'cancelado' || b.situacao === 'contestado') return { nivel: 'neutro', texto: b.situacao === 'contestado' ? 'Contestado: não pagar' : 'Cancelado', curto: b.situacao === 'contestado' ? 'Contestado' : 'Cancelado' };
   const abertas = ocs.filter((o) => !o.aceita);
   const graves = abertas.filter((o) => o.severidade === 'alta');
-  if (graves.length) return { nivel: 'ruim', texto: `NÃO PAGUE: ${graves[0].titulo}${graves.length > 1 ? ` (+${graves.length - 1})` : ''}` };
-  if (!b.beneficiario_cnpj) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ de quem recebe' };
-  if (!b.pagador_cnpj && cfg.cnpjOficina) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ do pagador' };
+  if (graves.length) return { nivel: 'ruim', texto: `NÃO PAGUE: ${graves[0].titulo}${graves.length > 1 ? ` (+${graves.length - 1})` : ''}`, curto: 'NÃO PAGUE' };
+  if (!b.beneficiario_cnpj) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ de quem recebe', curto: 'Falta quem recebe' };
+  if (!b.pagador_cnpj && cfg.cnpjOficina) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ do pagador', curto: 'Falta quem paga' };
   const medias = abertas.filter((o) => o.severidade === 'media');
-  if (medias.length) return { nivel: 'atencao', texto: `Conferir: ${medias[0].titulo}${medias.length > 1 ? ` (+${medias.length - 1})` : ''}` };
-  return { nivel: 'ok', texto: `Conferido com a nota. Antes de pagar, veja no app do banco se quem recebe é ${b.fornecedor ?? 'o fornecedor'}` };
+  if (medias.length) return { nivel: 'atencao', texto: `Conferir: ${medias[0].titulo}${medias.length > 1 ? ` (+${medias.length - 1})` : ''}`, curto: 'Conferir' };
+  return { nivel: 'ok', texto: `Conferido com a nota. Antes de pagar, veja no app do banco se quem recebe é ${b.fornecedor ?? 'o fornecedor'}`, curto: 'Conferido' };
 }

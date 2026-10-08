@@ -45,7 +45,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       alertas: F.alertas(db, h, cfg),
       carteira: F.carteira(db, h, cfg).slice(0, 5),
       serie: F.serieMensal(db, ym, 6),
-      compras: resumoAuditoria(ocorrenciasCompras(db, h, cfg)),
+      compras: { ...resumoAuditoria(ocorrenciasCompras(db, h, cfg)), comecou: db.prepare('SELECT (SELECT COUNT(*) FROM notas_compra) + (SELECT COUNT(*) FROM boletos) AS n').get().n > 0 },
     });
   }));
 

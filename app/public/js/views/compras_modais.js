@@ -241,7 +241,7 @@ export async function modalNovoBoleto(aoMudar) {
         montar(leitura,
           r.ok ? h('div', null, h('b', { class: 'bom' }, `Dígitos conferem · ${r.bancoNome ?? `banco ${r.banco ?? ''}`} · ${r.valor ? brl(r.valor) : 'sem valor'}${r.vencimento ? ` · vence ${dataBR(r.vencimento)}` : ''}`),
             h('small', { class: 'dica' }, ' Isso só mostra que a linha foi digitada certa. Não prova que o boleto é verdadeiro: a prova é a nota fiscal e o recebedor.')) : null,
-          r.erros.map((m) => h('div', { class: 'ruim' }, m)), r.avisos.map((m) => h('div', { class: 'aviso-texto' }, m)));
+          r.erros.map((m) => h('div', { class: 'ruim' }, m)), r.avisos.filter((m) => !r.erros.includes(m)).map((m) => h('div', { class: 'aviso-texto' }, m)));
         if (r.ok && r.valor > 0) { valor.value = paraCampo(r.valor); valor.readOnly = true; } else valor.readOnly = false;
         if (r.ok && r.vencimento) { venc.value = r.vencimento; venc.readOnly = true; } else venc.readOnly = false;
       } catch (e) { montar(leitura, h('div', { class: 'ruim' }, e.message)); }

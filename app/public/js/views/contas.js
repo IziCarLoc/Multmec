@@ -59,7 +59,7 @@ export async function contas(el, estado) {
     linhas.map((s) => h('div', { class: `linha-conta ${tipo}` },
       h('button', { class: 'linha-conta-info', onclick: acao(() => (s.boleto_id ? modalBoleto(s.boleto_id, recarregar) : formConta(s, recarregar))) },
         h('b', null, s.descricao), h('small', null, `${dataCurta(s.vencimento)} · ${s.categoria}${s.fornecedor && !s.boleto_id ? ' · ' + s.fornecedor : ''}`),
-        s.veredito && !s.pago_em ? selo(s.veredito.texto.length > 40 ? `${s.veredito.texto.slice(0, 38)}…` : s.veredito.texto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[s.veredito.nivel]) : null),
+        s.veredito && !s.pago_em ? selo(s.veredito.curto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[s.veredito.nivel]) : null),
       h('div', { class: 'acoes' }, h('b', null, brl(s.valor)),
         s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: acao(async () => { if (!confirmar('Desfazer este pagamento? Ele volta a ficar em aberto.')) return; await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); }) }, 'Desfazer')
           : h('button', { class: 'pequeno primario', onclick: acao(() => pagarComTrava((extra) => POST(`/saidas/${s.id}/pagar`, extra), recarregar, { fornecedor: s.fornecedor })) }, 'Paguei'))))) : null;
