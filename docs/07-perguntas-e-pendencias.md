@@ -38,12 +38,13 @@
 24. ~~DDA no banco~~ **Respondida:** tem DDA e provavelmente exporta. **Falta saber o banco** (da oficina, da locadora e da oficina do Mateus) para testar o arquivo real (`09`, seção 13).
 25. O sistema de OS atual tem **entrada de nota**? Dá para exportar os itens (evita digitar duas vezes)?
 26. A Scherer coloca o **número da OS ou a placa** no pedido da nota (campo `xPed`)? **Nunca pediram; talvez consigam.** Peça (mensagem pronta em Compras > Fornecedores > extrato) e o **número da nota no campo "número do documento"** do boleto.
-27. ~~Quem cadastra e quem paga~~ **Respondida:** a Giovana cadastra e o dono paga. Implementado (`09`, seção 10). **Pergunta nova:** a Giovana deve ver o Painel/resultado? Hoje não.
+27. ~~Quem cadastra e quem paga~~ **Respondida:** a Giovana cadastra e o dono paga. Implementado (`09`, seção 10). **Pergunta nova:** a Giovana deve ver as OS e os saldos dos clientes a prazo? Hoje vê (precisa para lançar e cobrar); não vê Painel, metas, relatórios, caixa nem salário/pró-labore.
 28. Compras **sem nota** (balcão): como tratar? Nota manual com motivo, ou proibir?
 29. **CNPJ da oficina** e CNPJ/telefone de confirmação de cada fornecedor (para cadastrar em Compras > Fornecedores).
 30. **Locadora e oficina do Mateus** (nota/boleto no CNPJ delas): quando a peça é da locadora e vai para carro da oficina (ou o contrário), quem **cobra** quem, e em quantos dias devolvem? (Aviso de atraso padrão: 30 dias, em Metas.) E o **CNPJ de cada uma** para cadastrar em Compras > Grupo.
 31. **Alçada no banco** (quem inclui o pagamento não aprova): o banco da oficina tem? Peça ao gerente (`09`, seção 10).
 32. O **contador** já entrega o pacote mensal de **XML de entrada** das notas emitidas contra o CNPJ da oficina (e da locadora e do Mateus)?
+33. A locadora e a oficina do Mateus têm **inscrição estadual** e **certificado digital** (e-CNPJ A1)? Sem certificado, o download automático das notas (fase 2) não vale para aquela empresa.
 
 ## C. Decisões da política da locadora (aguardam você)
 

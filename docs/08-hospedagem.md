@@ -19,7 +19,7 @@ Planos gratuitos que apagam o disco a cada reinício **não servem** para dados 
 |---|---|
 | `NODE_ENV` | `production` |
 | `APP_PASSWORD` | senha do **dono**, **mínimo 10 caracteres** (o sistema não sobe sem ela) |
-| `APP_PASSWORD_LANCAMENTO` | (opcional) senha de **quem só lança notas e boletos**, mínimo 10 caracteres e **diferente** da do dono. Esse perfil não paga, não libera boleto com problema, não confirma fornecedor, não importa DDA e não vê o resultado da oficina (`docs/09`, seção 10). Sem ela, só o dono entra. |
+| `APP_PASSWORD_LANCAMENTO` | (opcional) senha de **quem só lança notas e boletos**, mínimo 10 caracteres e **diferente** da do dono. Esse perfil não paga, não libera boleto com problema, não confirma fornecedor, não importa DDA e não vê Painel, metas, relatórios, caixa nem salário/pró-labore (`docs/09`, seção 10). Sem ela, só o dono entra. |
 | `SESSION_SECRET` | texto longo e aleatório: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `DB_PATH` | caminho do banco no **disco persistente**, por exemplo `/data/multmec.db` |
 | `TRUST_PROXY` | `1` quando houver proxy HTTPS na frente (quase sempre) |
@@ -83,7 +83,7 @@ O banco guarda também o **XML original das notas fiscais** (compactado), então
 
 ## 6b. Sessões e troca de senha
 
-O login fica guardado no banco: **Sair** encerra a sessão de verdade. Para derrubar **todas** as sessões de uma vez (por exemplo, quando um sócio ou quem lança sai), troque `SESSION_SECRET` e reinicie. Trocar só `APP_PASSWORD` ou `APP_PASSWORD_LANCAMENTO` não derruba quem já está dentro. O perfil (dono ou lançamento) fica na sessão guardada no banco, não no cookie: quem mexer no cookie não vira dono. A senha é **por perfil, não por pessoa**.
+O login fica guardado no banco: **Sair** encerra a sessão de verdade. Para derrubar **todas** as sessões de uma vez (por exemplo, quando um sócio ou quem lança sai), troque `SESSION_SECRET` e reinicie. Trocar (ou tirar) `APP_PASSWORD_LANCAMENTO` derruba as sessões de lançamento, e trocar `APP_PASSWORD` derruba as do dono: cada sessão guarda uma impressão da senha do perfil e deixa de valer quando ela muda. Sessões abertas antes desta versão valem só como dono. O perfil (dono ou lançamento) fica na sessão guardada no banco, não no cookie: quem mexer no cookie não vira dono. A senha é **por perfil, não por pessoa**.
 
 ## 7. Atualizar o sistema
 

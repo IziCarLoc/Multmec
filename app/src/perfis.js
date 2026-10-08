@@ -1,5 +1,5 @@
 // Perfis de acesso. "dono" faz tudo; "lancamento" (quem cadastra notas e boletos) não paga, não libera nada com problema,
-// não confirma fornecedor e não vê o resultado da oficina. A senha é por perfil, não por pessoa.
+// não confirma fornecedor e não vê Painel, metas, relatórios nem caixa. A senha é por perfil, não por pessoa.
 export const PERFIS = ['dono', 'lancamento'];
 
 export const ehDono = (req) => req.perfil === 'dono';
