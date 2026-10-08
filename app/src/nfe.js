@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { lerChaveNfe, normalizarCnpj, cnpjValido } from './documentos.js';
-import { r2 } from './util.js';
+import { r2, dataValida } from './util.js';
 
 const TAMANHO_MAXIMO = 3_000_000;
 const SEMPRE_LISTA = new Set(['det', 'dup', 'pag', 'detPag', 'NFref']);
@@ -25,11 +25,20 @@ const num = (v) => {
   const n = Number(String(v).replace(',', '.'));
   return Number.isFinite(n) ? n : null;
 };
-const texto = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
+// O leitor não expande entidades (segurança); as cinco predefinidas do XML e as referências numéricas são decodificadas aqui, só no texto.
+const ENTIDADES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const decodificar = (t) => t.replace(/&(#x[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);/g, (m, e) => {
+  if (e[0] !== '#') return ENTIDADES[e];
+  const cod = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+  return Number.isInteger(cod) && cod > 0 && cod <= 0x10ffff ? String.fromCodePoint(cod) : m;
+});
+const texto = (v) => (v === undefined || v === null ? null : decodificar(String(v)).trim() || null);
 const dataIso = (v) => {
   const m = String(v ?? '').match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
+  return m && dataValida(m[1]) ? m[1] : null;
 };
+// o hash identifica o conteúdo, não a formatação: BOM, quebras de linha e espaços entre tags não mudam o resultado
+const normalizado = (xml) => xml.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/>\s+</g, '><').trim();
 
 // 5 (nota de crédito) abate o que se deve, como a devolução; 6 (nota de débito) acrescenta, como a complementar
 const FINALIDADE = { 1: 'normal', 2: 'complementar', 3: 'ajuste', 4: 'devolucao', 5: 'devolucao', 6: 'complementar' };
@@ -45,13 +54,18 @@ export function lerXmlNfe(xml) {
   if (/<!DOCTYPE|<!ENTITY/i.test(bruto)) throw new ErroNfe('Este XML tem declarações que uma NF-e não usa; não vou ler por segurança.');
   let doc;
   try { doc = parser.parse(bruto); } catch { throw new ErroNfe('Não consegui ler este arquivo como XML.'); }
-  const hash = createHash('sha256').update(bruto).digest('hex');
+  const hash = createHash('sha256').update(normalizado(bruto)).digest('hex');
 
   const evento = doc.procEventoNFe?.evento?.infEvento ?? doc.evento?.infEvento;
   if (evento) {
     if (String(evento.tpEvento) !== '110111') throw new ErroNfe(`Este XML é um evento (${evento.tpEvento}) que não altera a conciliação. Importe o XML da nota.`);
     const ch = lerChaveNfe(evento.chNFe);
     if (!ch.valida) throw new ErroNfe(`Evento de cancelamento com chave inválida: ${ch.motivo}`);
+    // só vale o evento que a SEFAZ homologou (retEvento com cStat 135 ou 155); o pedido avulso pode ter sido recusado
+    const ret = doc.procEventoNFe?.retEvento?.infEvento;
+    if (!ret || !['135', '155'].includes(String(ret.cStat)) || (ret.chNFe && String(ret.chNFe) !== ch.chave)) {
+      throw new ErroNfe('Este XML de cancelamento não traz a resposta da SEFAZ (retEvento com cStat 135). Peça o arquivo "procEventoNFe" completo, ou marque a nota como cancelada à mão com o motivo.');
+    }
     return { tipo: 'cancelamento', chave: ch.chave, hash, motivo: texto(evento.detEvento?.xJust) };
   }
 
@@ -65,11 +79,18 @@ export function lerXmlNfe(xml) {
   if (!chave.valida) throw new ErroNfe(chave.motivo);
   const emit = inf.emit ?? {};
   const cnpjEmit = normalizarCnpj(emit.CNPJ ?? emit.CPF);
-  if (cnpjEmit !== chave.cnpjEmitente && normalizarCnpj(emit.CNPJ) !== chave.cnpjEmitente) {
+  const emitenteNaChave = emit.CPF && !emit.CNPJ ? `000${cnpjEmit}` : cnpjEmit;           // CPF ocupa as 14 posições da chave com zeros à esquerda
+  if (emitenteNaChave !== chave.cnpjEmitente) {
     throw new ErroNfe('XML inconsistente: o CNPJ do emitente não bate com a chave de acesso. Não use este arquivo.');
   }
   if (String(Number(ide.nNF)) !== chave.numero || String(Number(ide.serie)) !== chave.serie) {
     throw new ErroNfe('XML inconsistente: número ou série não batem com a chave de acesso. Não use este arquivo.');
+  }
+  const dataEmissao = dataIso(ide.dhEmi ?? ide.dEmi);
+  if (!dataEmissao) throw new ErroNfe('A nota não traz uma data de emissão válida. Não use este arquivo.');
+  if (chave.modelo !== String(ide.mod) || (ide.cUF && chave.uf !== String(ide.cUF)) || chave.aamm !== `${dataEmissao.slice(2, 4)}${dataEmissao.slice(5, 7)}`
+    || (ide.tpEmis && chave.chave[34] !== String(ide.tpEmis)) || (ide.cNF && chave.chave.slice(35, 43) !== String(ide.cNF).padStart(8, '0')) || (ide.cDV && chave.chave[43] !== String(ide.cDV))) {
+    throw new ErroNfe('XML inconsistente: a chave de acesso contradiz os dados da própria nota (estado, mês, modelo ou código). Não use este arquivo.');
   }
 
   if (String(ide.tpAmb) === '2') throw new ErroNfe('Esta nota foi emitida em ambiente de HOMOLOGAÇÃO (teste) e não tem valor fiscal. Peça a nota verdadeira ao fornecedor.');
@@ -83,8 +104,18 @@ export function lerXmlNfe(xml) {
 
   const itens = (inf.det ?? []).map((d, i) => {
     const p = d.prod ?? {};
+    const nItem = Number(d['@_nItem'] ?? i + 1);
+    if (!Number.isInteger(nItem) || nItem < 1) throw new ErroNfe('A nota tem um item sem número válido. Não use este arquivo.');
+    const imp = d.imposto ?? {};
+    const icms = Object.values(imp.ICMS ?? {})[0] ?? {};
+    const ipi = num(imp.IPI?.IPITrib?.vIPI) ?? 0;
+    const st = (num(icms.vICMSST) ?? 0) + (num(icms.vFCPST) ?? 0);
+    const vProd = num(p.vProd) ?? 0;
+    const desc = num(p.vDesc) ?? 0;
+    // o que o item custa de verdade (sem tributo recuperável): produto - desconto + frete + seguro + outras + IPI + ICMS-ST
+    const custoBase = r2(vProd - desc + (num(p.vFrete) ?? 0) + (num(p.vSeg) ?? 0) + (num(p.vOutro) ?? 0) + ipi + st);
     return {
-      n_item: Number(d['@_nItem'] ?? i + 1),
+      n_item: nItem,
       codigo: texto(p.cProd),
       descricao: texto(p.xProd) ?? '(sem descrição)',
       ncm: texto(p.NCM),
@@ -92,9 +123,11 @@ export function lerXmlNfe(xml) {
       unidade: texto(p.uCom),
       quantidade: num(p.qCom) ?? 1,
       valor_unitario: num(p.vUnCom) ?? 0,
-      valor_total: num(p.vProd) ?? 0,
-      valor_desconto: num(p.vDesc) ?? 0,
+      valor_total: vProd,
+      valor_desconto: desc,
+      custo_base: custoBase,
       x_ped: texto(p.xPed),
+      info_adicional: texto(d.infAdProd),
     };
   });
   if (!itens.length) throw new ErroNfe('A nota não tem itens.');
@@ -140,7 +173,7 @@ export function lerXmlNfe(xml) {
     chave: chave.chave,
     numero: chave.numero,
     serie: chave.serie === '0' ? '' : chave.serie,
-    data_emissao: dataIso(ide.dhEmi ?? ide.dEmi),
+    data_emissao: dataEmissao,
     natureza: texto(ide.natOp),
     finalidade: (inf.det ?? []).some((d) => ['5917', '6917'].includes(String(d.prod?.CFOP))) ? 'ajuste' : (FINALIDADE[Number(ide.finNFe)] ?? 'normal'),
     pago_no_ato: pagoNoAto ? 1 : 0,

@@ -1,9 +1,8 @@
-import { h, brl, brl0, pct, dataBR, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar } from '../ui.js';
+import { h, brl, brl0, pct, dataBR, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT, DEL } from '../api.js';
 
 const FORMAS = [['', '—'], ['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['débito', 'Débito'], ['cartão', 'Cartão de crédito'], ['boleto', 'Boleto'], ['transferência', 'Transferência']];
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-const num = (v) => (v === '' || v === undefined || v === null ? null : Number(String(v).replace(/\./g, '').replace(',', '.')) );
 const numOuZero = (v) => num(v) ?? 0;
 
 function chip(v) {
@@ -118,7 +117,7 @@ export async function escolherItemLivre(v, aoMudar) {
 
 function modalAplicarEmOsDireto(item, v, aoMudar) {
   modal(`Aplicar: ${item.descricao}`, (fechar) => {
-    const qtd = entrada('quantidade', item.restante_qtd, { inputmode: 'decimal' });
+    const qtd = entrada('quantidade', paraCampo(item.restante_qtd), { inputmode: 'decimal' });
     const f = h('form', { class: 'formulario' },
       h('p', { class: 'dica' }, `Em ${item.restante_qtd} unidade(s) ainda sem destino (${brl(item.restante_valor)}). Se a peça foi usada em mais de um carro, diminua a quantidade.`),
       campo(`Quantidade usada na OS ${v.numero ?? v.id}`, qtd),

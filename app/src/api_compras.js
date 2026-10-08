@@ -7,12 +7,13 @@ import { normalizarCnpj, cnpjValido, formatarCnpj } from './documentos.js';
 import { interpretarBoleto, nomeBanco } from './boleto.js';
 import { lerTextoDoBoleto } from './boleto_texto.js';
 import {
-  garantirFornecedor, importarNotaXml, criarNotaManual, notaComSaldo, restanteItem, alocar, removerAlocacao, alocarNotaNaOs, sugerirAlocacoes, recalcularCustoOs,
+  garantirFornecedor, importarNotaXml, criarNotaManual, notaComSaldo, restanteItem, alocar, removerAlocacao, alocarNotaNaOs, sugerirAlocacoes, recalcularCustoOs, definirSituacaoNota,
 } from './compras.js';
 import {
-  criarBoleto, sugerirNotas, conciliar, desconciliar, pagarBoleto, cancelarBoleto, duplicatasComSaldo, ErroBloqueio,
+  criarBoleto, sugerirNotas, conciliar, desconciliar, pagarBoleto, cancelarBoleto, reabrirBoleto, atualizarBoleto, duplicatasComSaldo, ErroBloqueio,
 } from './boletos.js';
-import { ocorrencias, ocorrenciasDoBoleto, resumoAuditoria, aceitarOcorrencia, desfazerAceite } from './auditoria.js';
+import { registrar, historico } from './trilha.js';
+import { ocorrencias, ocorrenciasDoBoleto, resumoAuditoria, aceitarOcorrencia, desfazerAceite, vereditoDoBoleto } from './auditoria.js';
 
 export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   const r = express.Router();
@@ -49,7 +50,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   r.post('/ocorrencias/aceitar', wrap((req, res) => {
     const chave = V.texto(req.body?.chave, { campo: 'a ocorrência', obrigatorio: true, max: 80 });
     if (!/^[a-z_]+:[a-z]+:\d+$/.test(chave)) throw new V.ErroValidacao('Ocorrência inválida.');
-    aceitarOcorrencia(db, chave, req.body?.motivo);
+    aceitarOcorrencia(db, chave, req.body?.motivo, hoje(), lerConfig(db));
     res.json({ ok: true });
   }));
   r.delete('/ocorrencias/aceite', wrap((req, res) => {
@@ -63,6 +64,10 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     for (const c of lista) if (!cnpjValido(c)) throw new V.ErroValidacao(`O CNPJ autorizado ${c} não passa na validação (confira os números).`);
     return [...new Set(lista)].join(',') || null;
   };
+  const objeto = (v, campo) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new V.ErroValidacao(`${campo} está em formato inválido.`);
+    return v;
+  };
   const fornecedorDe = (b, atual = {}) => {
     const cnpj = normalizarCnpj(b.cnpj ?? atual.cnpj) || null;
     if (cnpj && !cnpjValido(cnpj)) throw new V.ErroValidacao('O CNPJ não passa na validação (confira os números).');
@@ -73,6 +78,8 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
       ativo: b.ativo === undefined ? (atual.ativo ?? 1) : (b.ativo ? 1 : 0),
       obs: V.texto(b.obs ?? atual.obs, { campo: 'a observação', max: 300 }),
       beneficiarios_autorizados: autorizadosDe(b.beneficiariosAutorizados ?? atual.beneficiarios_autorizados),
+      // "conferido" = uma pessoa viu o CNPJ (cartão CNPJ) e confirmou o telefone; mudar o CNPJ desfaz a confirmação
+      confirmado_em: b.confirmado === undefined ? (cnpj !== (atual.cnpj ?? null) ? null : (atual.confirmado_em ?? null)) : (b.confirmado ? ((cnpj === (atual.cnpj ?? null) && atual.confirmado_em) || hoje()) : null),
     };
   };
   r.get('/fornecedores', wrap((req, res) => {
@@ -87,7 +94,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   r.post('/fornecedores', wrap((req, res) => {
     const f = fornecedorDe(req.body || {});
     try {
-      const id = Number(db.prepare('INSERT INTO fornecedores (nome, cnpj, principal, ativo, obs, beneficiarios_autorizados) VALUES (@nome, @cnpj, @principal, @ativo, @obs, @beneficiarios_autorizados)').run(f).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO fornecedores (nome, cnpj, principal, ativo, obs, beneficiarios_autorizados, confirmado_em) VALUES (@nome, @cnpj, @principal, @ativo, @obs, @beneficiarios_autorizados, @confirmado_em)').run(f).lastInsertRowid);
       res.status(201).json({ id, ...f });
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new V.ErroValidacao('Já existe fornecedor com esse nome ou CNPJ.');
@@ -99,7 +106,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'Fornecedor não encontrado.' });
     const f = fornecedorDe(req.body || {}, atual);
-    try { db.prepare('UPDATE fornecedores SET nome=@nome, cnpj=@cnpj, principal=@principal, ativo=@ativo, obs=@obs, beneficiarios_autorizados=@beneficiarios_autorizados WHERE id=@id').run({ ...f, id }); } catch (e) {
+    try { db.prepare('UPDATE fornecedores SET nome=@nome, cnpj=@cnpj, principal=@principal, ativo=@ativo, obs=@obs, beneficiarios_autorizados=@beneficiarios_autorizados, confirmado_em=@confirmado_em WHERE id=@id').run({ ...f, id }); registrar(db, 'fornecedor_alterado', 'fornecedor', id, { antes: { nome: atual.nome, cnpj: atual.cnpj, autorizados: atual.beneficiarios_autorizados, confirmado_em: atual.confirmado_em }, depois: { nome: f.nome, cnpj: f.cnpj, autorizados: f.beneficiarios_autorizados, confirmado_em: f.confirmado_em } }); } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new V.ErroValidacao('Já existe fornecedor com esse nome ou CNPJ.');
       throw e;
     }
@@ -171,9 +178,11 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     if (!lista.length) throw new V.ErroValidacao('Envie ao menos um XML.');
     if (lista.length > 100) throw new V.ErroValidacao('No máximo 100 arquivos por vez.');
     const resultados = lista.map((xml, i) => {
-      try { return { arquivo: req.body?.nomes?.[i] ?? `arquivo ${i + 1}`, ...importarNotaXml(db, String(xml)) }; } catch (e) {
-        if (e instanceof V.ErroValidacao) return { arquivo: req.body?.nomes?.[i] ?? `arquivo ${i + 1}`, status: 'erro', erro: e.message };
-        throw e;
+      const arquivo = typeof req.body?.nomes?.[i] === 'string' ? req.body.nomes[i].slice(0, 120) : `arquivo ${i + 1}`;
+      try { return { arquivo, ...importarNotaXml(db, String(xml)) }; } catch (e) {
+        if (e instanceof V.ErroValidacao) return { arquivo, status: 'erro', erro: e.message };
+        console.error('Erro inesperado ao importar XML:', e);                      // um arquivo ruim não derruba o lote
+        return { arquivo, status: 'erro', erro: 'Não consegui importar este arquivo. Confira se é o XML da nota fiscal.' };
       }
     });
     res.status(resultados.some((x) => x.status === 'importada' || x.status === 'cancelada') ? 201 : 200).json({ resultados });
@@ -181,7 +190,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
 
   r.post('/notas', wrap((req, res) => {
     const b = req.body || {};
-    const duplicatas = (b.duplicatas ?? []).map((d) => ({ vencimento: V.data(d.vencimento, { campo: 'O vencimento da parcela' }), valor: V.dinheiro(d.valor, { campo: 'o valor da parcela', obrigatorio: true, minimo: 0.01 }) }));
+    const duplicatas = V.lista(b.duplicatas, 'As parcelas').map((d) => objeto(d, 'A parcela')).map((d) => ({ vencimento: V.data(d.vencimento, { campo: 'O vencimento da parcela' }), valor: V.dinheiro(d.valor, { campo: 'o valor da parcela', obrigatorio: true, minimo: 0.01 }) }));
     const nota = criarNotaManual(db, {
       fornecedor_id: b.fornecedorId ? V.idDe(b.fornecedorId) : null, fornecedor_nome: b.fornecedorNome, cnpj_emitente: b.cnpjEmitente,
       numero: V.texto(b.numero, { campo: 'o número da nota', obrigatorio: true, max: 12 }), serie: V.texto(b.serie, { campo: 'a série', max: 4 }),
@@ -193,10 +202,9 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
 
   r.put('/notas/:id', wrap((req, res) => {
     const id = V.idDe(req.params.id);
-    const n = db.prepare('SELECT * FROM notas_compra WHERE id = ?').get(id);
-    if (!n) return res.status(404).json({ erro: 'Nota não encontrada.' });
+    if (!db.prepare('SELECT 1 FROM notas_compra WHERE id = ?').get(id)) return res.status(404).json({ erro: 'Nota não encontrada.' });
     const situacao = V.opcao(req.body?.situacao, ['ativa', 'cancelada'], { campo: 'a situação' });
-    db.prepare('UPDATE notas_compra SET situacao = ?, obs = COALESCE(?, obs) WHERE id = ?').run(situacao, V.texto(req.body?.obs, { campo: 'a observação', max: 300 }), id);
+    definirSituacaoNota(db, id, situacao, V.texto(req.body?.obs, { campo: 'o motivo', max: 300 }));
     res.json({ ok: true });
   }));
 
@@ -204,7 +212,13 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const id = V.idDe(req.params.id);
     const ligada = db.prepare('SELECT (SELECT COUNT(*) FROM conciliacoes WHERE nota_id = ?) AS c, (SELECT COUNT(*) FROM alocacoes a JOIN nota_itens i ON i.id = a.item_id WHERE i.nota_id = ?) AS a').get(id, id);
     if (ligada.c || ligada.a) throw new V.ErroValidacao('Esta nota já tem boleto ou peça ligada. Desfaça as ligações antes de apagar (ou marque como cancelada).');
-    db.prepare('DELETE FROM notas_compra WHERE id = ?').run(id);
+    const n = db.prepare('SELECT numero, chave, valor_total, fornecedor_id FROM notas_compra WHERE id = ?').get(id);
+    if (!n) return res.status(404).json({ erro: 'Nota não encontrada.' });
+    db.transaction(() => {
+      db.prepare('DELETE FROM notas_compra WHERE id = ?').run(id);
+      db.prepare("DELETE FROM auditoria_aceites WHERE chave LIKE '%:nota:' || ?").run(id);
+      registrar(db, 'nota_apagada', 'nota', id, { numero: n.numero, chave: n.chave, valor: n.valor_total, fornecedor_id: n.fornecedor_id });
+    })();
     res.json({ ok: true });
   }));
 
@@ -227,9 +241,9 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const validas = new Map(sugerirAlocacoes(db, notaId).map((s) => [s.item_id, s]));
     let n = 0;
     db.transaction(() => {
-      for (const s of req.body?.itens ?? []) {
+      for (const s of V.lista(req.body?.itens, 'Os itens').map((x) => objeto(x, 'O item'))) {
         const sug = validas.get(Number(s.item_id));
-        if (!sug) continue;                                  // só aplica o que o sistema realmente sugeriu
+        if (!sug || sug.ambigua) continue;                   // só aplica o que o sistema realmente sugeriu, e sem dúvida (ambígua é escolha manual)
         alocar(db, sug.item_id, { destino: 'os', vendaId: Number(s.venda_id ?? sug.venda_id) });
         n++;
       }
@@ -302,16 +316,18 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const linhas = db.prepare(`SELECT b.*, f.nome AS fornecedor,
         (SELECT COUNT(*) FROM conciliacoes c WHERE c.boleto_id = b.id) AS ligacoes FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id
         WHERE ${where.join(' AND ')} ORDER BY (b.situacao = 'aberto') DESC, b.vencimento ASC LIMIT 300`).all(p);
-    const ocs = ocorrencias(db, hoje(), lerConfig(db)).filter((o) => !o.aceita);
+    const cfg = lerConfig(db);
+    const todas = ocorrencias(db, hoje(), cfg);
+    const ocs = todas.filter((o) => !o.aceita);
     res.json(linhas.map((b) => {
       const mine = ocs.filter((o) => o.boletos.includes(b.id));
-      return { ...b, ocorrencias: mine.length, pior: mine.length ? mine[0].severidade : null };
+      return { ...b, ocorrencias: mine.length, pior: mine.length ? mine[0].severidade : null, veredito: vereditoDoBoleto(b, todas.filter((o) => o.boletos.includes(b.id)), cfg) };
     }));
   }));
 
   r.get('/boletos/:id', wrap((req, res) => {
     const id = V.idDe(req.params.id);
-    const b = db.prepare('SELECT b.*, f.nome AS fornecedor FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.id = ?').get(id);
+    const b = db.prepare('SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.id = ?').get(id);
     if (!b) return res.status(404).json({ erro: 'Boleto não encontrado.' });
     const cfg = lerConfig(db);
     const conc = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.data_emissao, n.valor_total AS nota_total, n.chave, f.nome AS fornecedor FROM conciliacoes c
@@ -329,7 +345,8 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
       }
       return { nota_id: c.nota_id, nota: c.nota_numero, fornecedor: c.fornecedor, nota_total: c.nota_total, pago_por_este_boleto: c.valor, destinos, sem_destino: r2(semDestino) };
     });
-    res.json({ boleto: { ...b, banco_nome: nomeBanco(b.banco) }, conciliacoes: conc, rastro, sugestoes: conc.length ? [] : sugerirNotas(db, b, cfg), ocorrencias: ocorrenciasDoBoleto(db, id, hoje(), cfg) });
+    const ocs = ocorrenciasDoBoleto(db, id, hoje(), cfg);
+    res.json({ boleto: { ...b, banco_nome: nomeBanco(b.banco) }, conciliacoes: conc, rastro, sugestoes: conc.length ? [] : sugerirNotas(db, b, cfg), ocorrencias: ocs, veredito: vereditoDoBoleto(b, ocs, cfg), historico: historico(db, 'boleto', id) });
   }));
 
   r.post('/boletos', wrap((req, res) => {
@@ -350,22 +367,25 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const fornecedorId = req.body?.fornecedorId ? V.idDe(req.body.fornecedorId) : null;
     const fornecedorNome = V.texto(req.body?.fornecedorNome, { campo: 'o fornecedor', max: 80 });
     if (!fornecedorId && !fornecedorNome) throw new V.ErroValidacao('Escolha o fornecedor.');
+    const cfg = lerConfig(db);
     const resultados = linhas.map((linha) => {
       try {
-        const r1 = criarBoleto(db, { linha, fornecedor_id: fornecedorId, fornecedor_nome: fornecedorNome }, hoje());
-        const graves = r1.ocorrencias.filter((o) => o.severidade === 'alta').length;
-        return { linha, status: 'criado', boleto_id: r1.boleto_id, ligado: r1.auto.ligado, graves, valor: r1.leitura?.valor ?? null, vencimento: r1.leitura?.vencimento ?? null };
+        const r1 = criarBoleto(db, { linha, fornecedor_id: fornecedorId, fornecedor_nome: fornecedorNome }, hoje(), cfg, { semOcorrencias: true });
+        return { linha, status: 'criado', boleto_id: r1.boleto_id, ligado: r1.auto.ligado, graves: 0, valor: r1.leitura?.valor ?? null, vencimento: r1.leitura?.vencimento ?? null };
       } catch (e) {
         if (e instanceof V.ErroValidacao) return { linha, status: 'erro', erro: e.message, boleto_id: e.boleto_id ?? null };
         throw e;
       }
     });
+    // as ocorrências são calculadas uma única vez no fim (e não 60 vezes)
+    const todas = resultados.some((x) => x.status === 'criado') ? ocorrencias(db, hoje(), cfg) : [];
+    for (const x of resultados) if (x.status === 'criado') x.graves = todas.filter((o) => o.severidade === 'alta' && !o.aceita && o.boletos.includes(x.boleto_id)).length;
     res.status(201).json({ resultados });
   }));
 
   r.post('/boletos/:id/conciliar', wrap((req, res) => {
     const id = V.idDe(req.params.id);
-    const itens = (req.body?.itens ?? []).map((i) => ({ nota_id: V.idDe(i.nota_id), valor: V.dinheiro(i.valor, { campo: 'o valor ligado', obrigatorio: true, minimo: 0.01 }), duplicata_id: i.duplicata_id ? V.idDe(i.duplicata_id) : null }));
+    const itens = V.lista(req.body?.itens, 'As notas').map((i) => objeto(i, 'A nota')).map((i) => ({ nota_id: V.idDe(i.nota_id), valor: V.dinheiro(i.valor, { campo: 'o valor ligado', obrigatorio: true, minimo: 0.01 }), duplicata_id: i.duplicata_id ? V.idDe(i.duplicata_id) : null }));
     conciliar(db, id, itens, 'manual');
     res.json({ ocorrencias: ocorrenciasDoBoleto(db, id, hoje()) });
   }));
@@ -376,8 +396,21 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const b = req.body || {};
     res.json(pagarBoleto(db, V.idDe(req.params.id), {
       data: b.data ? V.data(b.data, { campo: 'A data' }) : null, valor: b.valor ? V.dinheiro(b.valor, { campo: 'o valor pago', minimo: 0.01 }) : null,
-      aprovar: b.aprovar === true, motivo: b.motivo,
+      aprovar: b.aprovar === true, motivo: b.motivo, conferiuBanco: b.conferiuBanco === true,
     }, hoje()));
+  }));
+  r.post('/boletos/:id/reabrir', wrap((req, res) => {
+    res.json(reabrirBoleto(db, V.idDe(req.params.id), hoje()));
+  }));
+  r.put('/boletos/:id', wrap((req, res) => {
+    const b = req.body || {};
+    const campos = {};
+    if (b.beneficiarioCnpj !== undefined) campos.beneficiario_cnpj = V.texto(b.beneficiarioCnpj, { campo: 'o CNPJ do beneficiário', max: 30 });
+    if (b.pagadorCnpj !== undefined) campos.pagador_cnpj = V.texto(b.pagadorCnpj, { campo: 'o CNPJ do pagador', max: 30 });
+    if (b.beneficiarioNome !== undefined) campos.beneficiario_nome = V.texto(b.beneficiarioNome, { campo: 'o nome do beneficiário', max: 80 });
+    if (b.numeroDocumento !== undefined) campos.numero_documento = V.texto(b.numeroDocumento, { campo: 'o número do documento', max: 40 });
+    if (b.fornecedorId !== undefined) campos.fornecedor_id = V.idDe(b.fornecedorId);
+    res.json(atualizarBoleto(db, V.idDe(req.params.id), campos, hoje()));
   }));
   r.post('/boletos/:id/cancelar', wrap((req, res) => {
     cancelarBoleto(db, V.idDe(req.params.id), V.opcao(req.body?.situacao, ['cancelado', 'contestado'], { campo: 'a situação', padrao: 'cancelado' }), V.texto(req.body?.motivo, { campo: 'o motivo', max: 300 }));

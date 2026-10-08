@@ -2,17 +2,18 @@
 -- Regra de ouro: todo boleto precisa estar ligado a uma nota; toda peça da nota precisa ter destino (OS, estoque, uso interno, devolvida).
 
 CREATE TABLE IF NOT EXISTS fornecedores (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   nome TEXT NOT NULL UNIQUE COLLATE NOCASE,
   cnpj TEXT UNIQUE,                              -- 14 caracteres (numérico ou alfanumérico), sem pontuação
   principal INTEGER NOT NULL DEFAULT 0,
   ativo INTEGER NOT NULL DEFAULT 1,
   obs TEXT,
+  confirmado_em TEXT,                            -- quando uma pessoa conferiu CNPJ e telefone deste fornecedor
   beneficiarios_autorizados TEXT                 -- outros CNPJs que podem receber os boletos deste fornecedor (filial, banco, factoring), separados por vírgula
 );
 
 CREATE TABLE IF NOT EXISTS notas_compra (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id),
   chave TEXT UNIQUE,                             -- 44 caracteres; NULL em nota lançada à mão sem a chave
   numero TEXT NOT NULL,
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS notas_compra (
   cnpj_destinatario TEXT, nome_destinatario TEXT,
   finalidade TEXT NOT NULL DEFAULT 'normal' CHECK (finalidade IN ('normal','complementar','ajuste','devolucao')),
   situacao TEXT NOT NULL DEFAULT 'ativa' CHECK (situacao IN ('ativa','cancelada')),
+  cancelada_por TEXT,                            -- 'sefaz' (protocolo ou evento: não pode ser desfeito aqui) ou 'manual'
   protocolo_status TEXT,                         -- cStat do protocolo (100 = autorizada)
   natureza TEXT,
   info_compl TEXT,
@@ -40,7 +42,7 @@ CREATE TABLE IF NOT EXISTS notas_compra (
 CREATE INDEX IF NOT EXISTS idx_notas_emissao ON notas_compra(data_emissao);
 
 CREATE TABLE IF NOT EXISTS nota_duplicatas (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   nota_id INTEGER NOT NULL REFERENCES notas_compra(id) ON DELETE CASCADE,
   numero TEXT,
   vencimento TEXT NOT NULL,
@@ -48,7 +50,7 @@ CREATE TABLE IF NOT EXISTS nota_duplicatas (
 );
 
 CREATE TABLE IF NOT EXISTS nota_itens (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   nota_id INTEGER NOT NULL REFERENCES notas_compra(id) ON DELETE CASCADE,
   n_item INTEGER NOT NULL,
   codigo TEXT,
@@ -60,12 +62,13 @@ CREATE TABLE IF NOT EXISTS nota_itens (
   valor_desconto REAL NOT NULL DEFAULT 0,
   custo_total REAL NOT NULL,                     -- parte deste item no vNF (inclui frete, impostos e desconto rateados)
   x_ped TEXT,                                    -- nº do pedido que o cliente informou na compra (se a nota trouxer)
+  info_adic TEXT,                                -- informação adicional do item (muitos ERPs escrevem placa e OS aqui)
   UNIQUE (nota_id, n_item)
 );
 CREATE INDEX IF NOT EXISTS idx_itens_codigo ON nota_itens(codigo);
 
 CREATE TABLE IF NOT EXISTS boletos (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   fornecedor_id INTEGER REFERENCES fornecedores(id),
   codigo_barras TEXT UNIQUE,                     -- 44 dígitos; identifica o boleto e barra duplicidade
   linha_digitavel TEXT,
@@ -78,6 +81,7 @@ CREATE TABLE IF NOT EXISTS boletos (
   pagador_cnpj TEXT,
   situacao TEXT NOT NULL DEFAULT 'aberto' CHECK (situacao IN ('aberto','pago','contestado','cancelado')),
   saida_id INTEGER REFERENCES saidas(id) ON DELETE SET NULL,
+  conferido_banco_em TEXT,                       -- quando alguém confirmou no app do banco quem recebe (nome e CNPJ)
   aprovado_motivo TEXT,                          -- liberado para pagar mesmo com ocorrência grave
   aprovado_em TEXT,
   obs TEXT,
@@ -86,7 +90,7 @@ CREATE TABLE IF NOT EXISTS boletos (
 CREATE INDEX IF NOT EXISTS idx_boletos_venc ON boletos(vencimento);
 
 CREATE TABLE IF NOT EXISTS conciliacoes (        -- boleto <-> nota (um boleto pode cobrir várias notas e vice-versa)
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   boleto_id INTEGER NOT NULL REFERENCES boletos(id) ON DELETE CASCADE,
   nota_id INTEGER NOT NULL REFERENCES notas_compra(id) ON DELETE CASCADE,
   duplicata_id INTEGER REFERENCES nota_duplicatas(id) ON DELETE SET NULL,
@@ -97,7 +101,7 @@ CREATE TABLE IF NOT EXISTS conciliacoes (        -- boleto <-> nota (um boleto p
 );
 
 CREATE TABLE IF NOT EXISTS alocacoes (           -- item da nota -> destino (OS, estoque, uso interno, devolvido)
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id INTEGER NOT NULL REFERENCES nota_itens(id) ON DELETE CASCADE,
   destino TEXT NOT NULL DEFAULT 'os' CHECK (destino IN ('os','estoque','uso_interno','devolvido')),
   venda_id INTEGER REFERENCES vendas(id) ON DELETE CASCADE,
@@ -110,8 +114,19 @@ CREATE TABLE IF NOT EXISTS alocacoes (           -- item da nota -> destino (OS,
 CREATE INDEX IF NOT EXISTS idx_aloc_item ON alocacoes(item_id);
 CREATE INDEX IF NOT EXISTS idx_aloc_venda ON alocacoes(venda_id);
 
-CREATE TABLE IF NOT EXISTS auditoria_aceites (   -- "conferi e está certo", com o motivo (trilha de auditoria)
+CREATE TABLE IF NOT EXISTS auditoria_aceites (   -- "conferi e está certo", com o motivo (situação atual; o histórico fica em auditoria_log)
   chave TEXT PRIMARY KEY,                        -- tipo:entidade:id
   motivo TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT '',               -- impressão digital do fato aceito (valor, boletos do grupo...): se o fato muda, o aceite deixa de valer
   em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS auditoria_log (       -- só inclusão: nada aqui é alterado ou apagado
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  em TEXT NOT NULL DEFAULT (datetime('now')),
+  acao TEXT NOT NULL,                            -- aceitar, desfazer_aceite, pagar, pagar_liberado, desfazer_pagamento, cancelar, reabrir, conciliar, desconciliar, nota_situacao, nota_apagada...
+  entidade TEXT,
+  entidade_id INTEGER,
+  detalhe TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_log_entidade ON auditoria_log(entidade, entidade_id);

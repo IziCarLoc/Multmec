@@ -1,7 +1,6 @@
-import { h, brl0, pct, vazio, carregando, toast, campo, entrada, selecao, lerForm, montar } from '../ui.js';
+import { h, brl0, pct, vazio, carregando, toast, campo, entrada, selecao, lerForm, montar, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT } from '../api.js';
 
-const num = (v) => (v === '' ? null : Number(String(v).replace(/\./g, '').replace(',', '.')));
 const perc = (v) => (v === '' ? null : Number(String(v).replace(',', '.')) / 100);
 
 export async function metas(el) {

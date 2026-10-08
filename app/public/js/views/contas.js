@@ -1,9 +1,8 @@
-import { h, brl, brl0, dataBR, dataCurta, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar } from '../ui.js';
+import { h, brl, brl0, dataBR, dataCurta, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, acao, numBR as num, paraCampo } from '../ui.js';
 import { GET, POST, PUT, DEL } from '../api.js';
-import { pagarComTrava } from './compras_modais.js';
+import { pagarComTrava, modalBoleto } from './compras_modais.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-const num = (v) => Number(String(v).replace(/\./g, '').replace(',', '.'));
 
 async function formConta(conta, aoSalvar) {
   const cats = await GET('/categorias');
@@ -58,10 +57,12 @@ export async function contas(el, estado) {
   const d = await GET(`/saidas?mes=${mes}`);
   const grupo = (titulo, linhas, tipo) => linhas.length ? h('section', { class: 'cartao' }, h('h2', null, `${titulo} · ${brl0(linhas.reduce((a, s) => a + s.valor, 0))}`),
     linhas.map((s) => h('div', { class: `linha-conta ${tipo}` },
-      h('button', { class: 'linha-conta-info', onclick: () => formConta(s, recarregar) }, h('b', null, s.descricao), h('small', null, `${dataCurta(s.vencimento)} · ${s.categoria}${s.fornecedor ? ' · ' + s.fornecedor : ''}`)),
+      h('button', { class: 'linha-conta-info', onclick: acao(() => (s.boleto_id ? modalBoleto(s.boleto_id, recarregar) : formConta(s, recarregar))) },
+        h('b', null, s.descricao), h('small', null, `${dataCurta(s.vencimento)} · ${s.categoria}${s.fornecedor && !s.boleto_id ? ' · ' + s.fornecedor : ''}`),
+        s.veredito && !s.pago_em ? selo(s.veredito.texto.length > 40 ? `${s.veredito.texto.slice(0, 38)}…` : s.veredito.texto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[s.veredito.nivel]) : null),
       h('div', { class: 'acoes' }, h('b', null, brl(s.valor)),
-        s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: async () => { await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); } }, 'Desfazer')
-          : h('button', { class: 'pequeno primario', onclick: () => pagarComTrava((extra) => POST(`/saidas/${s.id}/pagar`, extra), recarregar) }, 'Paguei'))))) : null;
+        s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: acao(async () => { if (!confirmar('Desfazer este pagamento? Ele volta a ficar em aberto.')) return; await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); }) }, 'Desfazer')
+          : h('button', { class: 'pequeno primario', onclick: acao(() => pagarComTrava((extra) => POST(`/saidas/${s.id}/pagar`, extra), recarregar, { fornecedor: s.fornecedor })) }, 'Paguei'))))) : null;
   const recarregar = () => contas(el, estado);
   montar(el, 
     h('div', { class: 'seletor-mes' },

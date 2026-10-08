@@ -70,6 +70,11 @@ function migrar(db) {
   if (!colunas('notas_compra').includes('pago_no_ato')) db.exec('ALTER TABLE notas_compra ADD COLUMN pago_no_ato INTEGER NOT NULL DEFAULT 0');
   if (!colunas('notas_compra').includes('cnpj_receb')) db.exec('ALTER TABLE notas_compra ADD COLUMN cnpj_receb TEXT');
   if (!colunas('fornecedores').includes('beneficiarios_autorizados')) db.exec('ALTER TABLE fornecedores ADD COLUMN beneficiarios_autorizados TEXT');
+  if (!colunas('nota_itens').includes('info_adic')) db.exec('ALTER TABLE nota_itens ADD COLUMN info_adic TEXT');
+  if (!colunas('notas_compra').includes('cancelada_por')) db.exec('ALTER TABLE notas_compra ADD COLUMN cancelada_por TEXT');
+  if (!colunas('fornecedores').includes('confirmado_em')) db.exec('ALTER TABLE fornecedores ADD COLUMN confirmado_em TEXT');
+  if (!colunas('boletos').includes('conferido_banco_em')) db.exec('ALTER TABLE boletos ADD COLUMN conferido_banco_em TEXT');
+  if (!colunas('auditoria_aceites').includes('estado')) db.exec("ALTER TABLE auditoria_aceites ADD COLUMN estado TEXT NOT NULL DEFAULT ''");
   if (!colunas('vendas').includes('custo_pecas_auto')) {
     db.exec('ALTER TABLE vendas ADD COLUMN custo_pecas_auto INTEGER NOT NULL DEFAULT 0');   // 1 = custo veio das notas
   }

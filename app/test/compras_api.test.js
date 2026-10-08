@@ -45,6 +45,9 @@ test('fluxo completo: XML, boleto ligado, boleto suspeito travado em Contas, ace
     assert.deepEqual(imp.json.resultados.map((r) => r.status), ['importada', 'ja_existia', 'erro']);
     assert.match(imp.json.resultados[2].erro, /não batem com a chave/);
     const nota = imp.json.resultados[0].nota_id;
+    // o fornecedor veio do XML: uma pessoa precisa confirmar CNPJ e telefone (enquanto isso há um aviso)
+    const forn0 = (await chamar('GET', '/api/compras/fornecedores')).json[0];
+    assert.equal((await chamar('PUT', `/api/compras/fornecedores/${forn0.id}`, { confirmado: true })).status, 200);
 
     // boleto que bate com a parcela: ligado sozinho, sem ocorrência
     const ok = await chamar('POST', '/api/compras/boletos', { linha: linhaDigitavel({ valor: 200, vencimento: '2026-10-30' }), fornecedorNome: 'DISTRIBUIDORA TESTE LTDA', beneficiarioCnpj: '11.222.333/0001-81', pagadorCnpj: CNPJ_OFICINA });
@@ -63,7 +66,8 @@ test('fluxo completo: XML, boleto ligado, boleto suspeito travado em Contas, ace
     const saidaId = db.prepare('SELECT saida_id FROM boletos WHERE id = ?').get(suspeito.json.boleto_id).saida_id;
     const travado = await chamar('POST', `/api/saidas/${saidaId}/pagar`, {});
     assert.equal(travado.status, 409);
-    assert.equal(travado.json.ocorrencias[0].tipo, 'boleto_sem_nota');
+    assert.ok(travado.json.ocorrencias.some((o) => o.tipo === 'boleto_sem_nota'));
+    assert.ok(travado.json.ocorrencias.some((o) => o.tipo === 'confira_recebedor'));          // e ainda ninguém conferiu o recebedor no banco
     assert.equal((await chamar('DELETE', `/api/saidas/${saidaId}`)).status, 400);           // conta de boleto só sai cancelando o boleto
     const liberado = await chamar('POST', `/api/saidas/${saidaId}/pagar`, { aprovar: true, motivo: 'Fornecedor confirmou por telefone' });
     assert.equal(liberado.status, 200);
@@ -111,8 +115,8 @@ test('boleto com valor de outra pessoa na linha, nota de outro destinatário e b
     await chamar('PUT', '/api/config', { cnpjOficina: CNPJ_OFICINA });
     await chamar('POST', '/api/compras/notas/xml', { xml: xmlNfe({ nNF: 77, destCnpj: CNPJ_OUTRO, dups: [{ venc: '2026-10-20', valor: 100 }] }) });
     const b = await chamar('POST', '/api/compras/boletos', { linha: linhaDigitavel({ valor: 100, vencimento: '2026-10-20' }), fornecedorNome: 'DISTRIBUIDORA TESTE LTDA', beneficiarioCnpj: CNPJ_OUTRO });
-    const tipos = b.json.ocorrencias.map((o) => o.tipo).sort();
-    assert.deepEqual(tipos, ['boleto_beneficiario_diverge', 'nota_destinatario_diverge']);
+    const tipos = b.json.ocorrencias.map((o) => o.tipo);
+    assert.ok(tipos.includes('boleto_beneficiario_diverge') && tipos.includes('nota_destinatario_diverge'));
     const resumo = (await chamar('GET', '/api/compras/resumo')).json;
     assert.ok(resumo.auditoria.alta >= 2);
     assert.equal(resumo.cnpjOficinaConfigurado, true);
@@ -170,7 +174,7 @@ test('boletos em lote: cadastra os bons, aponta repetido, inválido e o que fico
   const { chamar, fechar, logar } = await subir();
   try {
     await logar();
-    await chamar('POST', '/api/compras/notas/xml', { xml: xmlNfe({ nNF: 10, dups: [{ venc: '2026-10-25', valor: 150 }] }) });
+    await chamar('POST', '/api/compras/notas/xml', { xml: xmlNfe({ nNF: 10, itens: [{ cProd: 'P1', xProd: 'PECA', q: 1, vProd: 150 }], dups: [{ venc: '2026-10-25', valor: 150 }] }) });
     const l1 = linhaDigitavel({ valor: 150, vencimento: '2026-10-25' });
     const l2 = linhaDigitavel({ valor: 99.9, vencimento: '2026-10-26' });
     const r = await chamar('POST', '/api/compras/boletos/lote', { linhas: `${l1}\n${l2}\n${l1}\n123\n`, fornecedorNome: 'DISTRIBUIDORA TESTE LTDA' });

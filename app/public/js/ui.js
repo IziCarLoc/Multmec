@@ -26,6 +26,22 @@ export function montar(el, ...filhos) {
     .map((f) => (f instanceof Node ? f : document.createTextNode(String(f)))));
 }
 
+/**
+ * Lê número digitado em pt-BR ou vindo de campo preenchido pelo sistema:
+ * "1.234,56" -> 1234.56 · "1.500" -> 1500 (milhar) · "200.00" e "1500.5" -> decimal com ponto · "" -> null.
+ */
+export function numBR(v) {
+  if (v === undefined || v === null) return null;
+  let s = String(v).trim().replace(/[R$\s]/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+/** Número para preencher campo de formulário no formato brasileiro (vírgula decimal, sem milhar). */
+export const paraCampo = (v) => (v === null || v === undefined || v === '' ? '' : String(v).replace('.', ','));
+
 const brlFmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const brlInt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 export const brl = (v) => brlFmt.format(Number(v) || 0);
@@ -51,21 +67,69 @@ export function toast(msg, erro = false) {
   setTimeout(() => el.remove(), erro ? 5000 : 2600);
 }
 
-/** Janela sobreposta. `conteudo(fechar)` devolve o corpo. */
+// Janelas empilhadas: o botão Voltar do celular fecha a de cima (cada janela ocupa uma entrada no histórico)
+const pilha = [];
+let ignorarPop = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    if (ignorarPop > 0) { ignorarPop -= 1; return; }
+    const topo = pilha[pilha.length - 1];
+    if (topo) topo.fecharPeloHistorico();
+  });
+}
+
+/** Janela sobreposta. `conteudo(fechar)` devolve o corpo. O retorno é a função de fechar, que também tem `.corpo` (para atualizar sem fechar). */
 export function modal(titulo, conteudo) {
   const fundo = h('div', { class: 'modal-fundo' });
-  const fechar = () => { fundo.remove(); document.removeEventListener('keydown', esc); };
-  const esc = (e) => { if (e.key === 'Escape') fechar(); };
+  const registro = { fecharPeloHistorico: () => encerrar(false) };
+  const esc = (e) => { if (e.key === 'Escape' && pilha[pilha.length - 1] === registro) fechar(); };
+  function encerrar(chamarHistorico) {
+    if (!fundo.isConnected) return;
+    fundo.remove();
+    document.removeEventListener('keydown', esc);
+    const pos = pilha.indexOf(registro);
+    if (pos >= 0) pilha.splice(pos, 1);
+    if (!pilha.length) document.body.classList.remove('sem-rolagem');
+    if (chamarHistorico) { ignorarPop += 1; history.back(); }
+  }
+  const fechar = () => encerrar(true);
+  const corpo = h('div', { class: 'modal-corpo' });
   const caixa = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo },
-    h('header', { class: 'modal-topo' }, h('h2', null, titulo), h('button', { class: 'icone', type: 'button', 'aria-label': 'Fechar', onclick: fechar }, '×')),
-    h('div', { class: 'modal-corpo' }, conteudo(fechar)));
+    h('header', { class: 'modal-topo' }, h('h2', null, titulo), h('button', { class: 'icone', type: 'button', 'aria-label': 'Fechar', onclick: fechar }, '×')), corpo);
+  corpo.append(conteudo(fechar));
   fundo.append(caixa);
   fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) fechar(); });
   document.addEventListener('keydown', esc);
   document.body.append(fundo);
+  document.body.classList.add('sem-rolagem');
+  pilha.push(registro);
+  history.pushState({ modal: pilha.length }, '');
   const primeiro = caixa.querySelector('input:not([type=hidden]), select, textarea');
   if (primeiro && window.matchMedia('(min-width: 700px)').matches) primeiro.focus();
+  fechar.corpo = corpo;
   return fechar;
+}
+
+/** Troca o conteúdo de uma janela aberta sem fechá-la e sem perder a posição da rolagem. */
+export function atualizarModal(fechar, conteudo) {
+  const corpo = fechar.corpo;
+  if (!corpo?.isConnected) return;
+  const topo = corpo.scrollTop;
+  corpo.replaceChildren(conteudo);
+  corpo.scrollTop = topo;
+}
+
+/**
+ * Envolve um clique que fala com o servidor: mostra o erro (nada fica mudo), evita toque duplo e devolve o botão ao normal.
+ * Uso: onclick: acao(async () => { ... })
+ */
+export function acao(fn) {
+  return async (ev) => {
+    const botao = ev?.currentTarget;
+    if (botao?.disabled) return;
+    if (botao) botao.disabled = true;
+    try { await fn(ev); } catch (e) { toast(e?.message || 'Não consegui falar com o servidor. Tente de novo.', true); } finally { if (botao) botao.disabled = false; }
+  };
 }
 
 export function confirmar(texto) { return window.confirm(texto); }

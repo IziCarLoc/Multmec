@@ -15,7 +15,7 @@ export function xmlNfe({
   itens = [{ cProd: 'P1', xProd: 'PASTILHA DE FREIO', q: 1, vProd: 100 }], dups = [], vNF, vFrete = 0, infCpl = '', cStat = '100', proc = true, dhEmi = '2026-10-01T09:12:26-03:00',
   finNFe = 1, chv, pag = '', cfop = '5102',
 } = {}) {
-  const chaveNota = chv ?? chave({ nNF, serie, cnpj: emitCnpj, mod });
+  const chaveNota = chv ?? chave({ nNF, serie, cnpj: emitCnpj, mod, aamm: `${dhEmi.slice(2, 4)}${dhEmi.slice(5, 7)}` });
   const vProd = itens.reduce((a, i) => a + i.vProd, 0);
   const total = vNF ?? vProd + vFrete;
   const det = itens.map((i, k) => `<det nItem="${k + 1}"><prod><cProd>${i.cProd}</cProd><cEAN>SEM GTIN</cEAN><xProd>${i.xProd}</xProd><NCM>87083090</NCM><CFOP>${cfop}</CFOP><uCom>UN</uCom><qCom>${i.q.toFixed(4)}</qCom><vUnCom>${(i.vProd / i.q).toFixed(10)}</vUnCom><vProd>${i.vProd.toFixed(2)}</vProd>${i.xPed ? `<xPed>${i.xPed}</xPed><nItemPed>${k + 1}</nItemPed>` : ''}</prod></det>`).join('');
@@ -29,6 +29,7 @@ export function xmlNfe({
     : `<?xml version="1.0" encoding="UTF-8"?>${nfe}`;
 }
 
-export function xmlCancelamento(chv) {
-  return `<?xml version="1.0" encoding="UTF-8"?><procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><evento versao="1.00"><infEvento Id="ID1101114${chv}01"><cOrgao>43</cOrgao><tpAmb>1</tpAmb><chNFe>${chv}</chNFe><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><detEvento versao="1.00"><descEvento>Cancelamento</descEvento><nProt>143260000000001</nProt><xJust>Erro na emissão da nota</xJust></detEvento></infEvento></evento></procEventoNFe>`;
+export function xmlCancelamento(chv, { homologado = true } = {}) {
+  const ret = homologado ? `<retEvento versao="1.00"><infEvento><tpAmb>1</tpAmb><cStat>135</cStat><xMotivo>Evento registrado e vinculado a NF-e</xMotivo><chNFe>${chv}</chNFe><tpEvento>110111</tpEvento></infEvento></retEvento>` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?><procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><evento versao="1.00"><infEvento Id="ID1101114${chv}01"><cOrgao>43</cOrgao><tpAmb>1</tpAmb><chNFe>${chv}</chNFe><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><detEvento versao="1.00"><descEvento>Cancelamento</descEvento><nProt>143260000000001</nProt><xJust>Erro na emissão da nota</xJust></detEvento></infEvento></evento>${ret}</procEventoNFe>`;
 }

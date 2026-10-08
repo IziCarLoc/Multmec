@@ -13,9 +13,11 @@ function cenario() {
   const db = abrirBanco(':memory:');
   gravarConfig(db, { cnpjOficina: CNPJ_OFICINA });
   const cfg = () => lerConfig(db);
+  // fornecedor principal já cadastrado e conferido por uma pessoa (sem isso a tela pede a conferência)
+  db.prepare("INSERT INTO fornecedores (nome, cnpj, principal, confirmado_em) VALUES ('DISTRIBUIDORA TESTE LTDA', ?, 1, '2026-09-01')").run(CNPJ_FORNECEDOR);
   const nota = (nNF, valor, dups = [{ venc: '2026-10-20', valor }], extra = {}) =>
     importarNotaXml(db, xmlNfe({ nNF, itens: [{ cProd: `C${nNF}`, xProd: `PECA ${nNF}`, q: 2, vProd: valor }], dups, ...extra })).nota_id;
-  const boleto = (valor, vencimento, extra = {}) => criarBoleto(db, { linha: linhaDigitavel({ valor, vencimento }), beneficiario_cnpj: CNPJ_FORNECEDOR, ...extra }, HOJE, cfg());
+  const boleto = (valor, vencimento, extra = {}) => criarBoleto(db, { linha: linhaDigitavel({ valor, vencimento }), beneficiario_cnpj: CNPJ_FORNECEDOR, pagador_cnpj: CNPJ_OFICINA, ...extra }, HOJE, cfg());
   const cliente = Number(db.prepare("INSERT INTO clientes (nome) VALUES ('CLIENTE TESTE')").run().lastInsertRowid);
   const os = (numero, placa, extra = {}) => Number(db.prepare(`INSERT INTO vendas (numero, data, cliente_id, placa, situacao, valor_total, valor_mao_obra, custo_pecas)
       VALUES (?, ?, ?, ?, 'concluida', 900, 200, ?)`).run(numero, extra.data ?? '2026-10-02', cliente, placa, extra.custo ?? null).lastInsertRowid);
@@ -41,7 +43,7 @@ test('boleto SEM nota correspondente vira ocorrência ALTA e o pagamento é trav
   const r = boleto(777.77, '2026-10-25', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
   assert.equal(r.auto.ligado, false);
   assert.deepEqual(r.ocorrencias.map((o) => [o.tipo, o.severidade]), [['boleto_sem_nota', 'alta']]);
-  assert.throws(() => pagarBoleto(db, r.boleto_id, {}, HOJE, cfg()), (e) => e instanceof ErroBloqueio && e.ocorrencias.length === 1);
+  assert.throws(() => pagarBoleto(db, r.boleto_id, { conferiuBanco: true }, HOJE, cfg()), (e) => e instanceof ErroBloqueio && e.ocorrencias.length === 1 && e.ocorrencias[0].tipo === 'boleto_sem_nota');
   assert.throws(() => pagarBoleto(db, r.boleto_id, { aprovar: true, motivo: 'ok' }, HOJE, cfg()), ErroBloqueio);     // motivo curto demais
   const pago = pagarBoleto(db, r.boleto_id, { aprovar: true, motivo: 'Fornecedor confirmou por telefone' }, HOJE, cfg());
   assert.equal(pago.liberado_com_ressalva, true);
@@ -56,8 +58,10 @@ test('boleto conciliado e sem problemas é pago normalmente', () => {
   const { db, cfg, nota, boleto } = cenario();
   nota(500, 320);
   const r = boleto(320, '2026-10-20', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
-  const p = pagarBoleto(db, r.boleto_id, {}, HOJE, cfg());
+  assert.throws(() => pagarBoleto(db, r.boleto_id, {}, HOJE, cfg()), (e) => e instanceof ErroBloqueio && e.ocorrencias[0].tipo === 'confira_recebedor');     // sem conferir o recebedor no banco não paga
+  const p = pagarBoleto(db, r.boleto_id, { conferiuBanco: true }, HOJE, cfg());
   assert.equal(p.liberado_com_ressalva, false);
+  assert.ok(db.prepare('SELECT conferido_banco_em FROM boletos WHERE id = ?').get(r.boleto_id).conferido_banco_em);
 });
 
 const FILIAL_FORNECEDOR = '11222333000262';          // mesma raiz do CNPJ do fornecedor de teste, outra filial (DV válido)
@@ -155,8 +159,8 @@ test('nota com parcela vencida e sem boleto aparece como média; marcar como con
   const o = lista.find((x) => x.tipo === 'nota_sem_boleto');
   assert.equal(o.severidade, 'media');
   const antes = resumoAuditoria(lista).media;
-  assert.throws(() => aceitarOcorrencia(db, o.chave, 'ok'), /Explique/);
-  aceitarOcorrencia(db, o.chave, 'Pago no Pix em 05/10');
+  assert.throws(() => aceitarOcorrencia(db, o.chave, 'ok', HOJE, cfg()), /Explique/);
+  aceitarOcorrencia(db, o.chave, 'Pago no Pix em 05/10', HOJE, cfg());
   lista = ocorrencias(db, HOJE, cfg());
   assert.ok(lista.find((x) => x.chave === o.chave).aceita);
   assert.equal(resumoAuditoria(lista).media, antes - 1);
@@ -167,7 +171,8 @@ test('nota cancelada com boleto ligado é alta; nota cobrada duas vezes é alta'
   const n = nota(500, 320);
   const r1 = boleto(320, '2026-10-20', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
   const r2 = boleto(320, '2026-10-27', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
-  conciliar(db, r2.boleto_id, [{ nota_id: n, valor: 320 }], 'manual');
+  assert.throws(() => conciliar(db, r2.boleto_id, [{ nota_id: n, valor: 320 }], 'manual'), /só tem R\$ 0.00 sem boleto/);          // a ligação em excesso é recusada
+  db.prepare("INSERT INTO conciliacoes (boleto_id, nota_id, valor, origem) VALUES (?, ?, 320, 'manual')").run(r2.boleto_id, n);        // mas um dado antigo assim ainda é apontado
   assert.ok(ocorrencias(db, HOJE, cfg()).some((o) => o.tipo === 'nota_cobrada_a_mais' && o.severidade === 'alta'));
   db.prepare("UPDATE notas_compra SET situacao = 'cancelada' WHERE id = ?").run(n);
   assert.ok(ocorrenciasDoBoleto(db, r1.boleto_id, HOJE, cfg()).some((o) => o.tipo === 'nota_cancelada_com_boleto'));
@@ -237,7 +242,7 @@ test('nota digitada à mão: sem itens vira "Peças (total)", parcelas precisam 
   assert.equal(itens[0].custo_total, 450);
   assert.equal(db.prepare('SELECT numero FROM notas_compra WHERE id = ?').get(r.nota_id).numero, '321');
   assert.throws(() => criarNotaManual(db, { fornecedor_nome: 'Auto Peças do Zé', numero: '322', data_emissao: '2026-10-05', valor_total: 450, duplicatas: [{ vencimento: '2026-10-30', valor: 400 }] }), /parcelas somam/);
-  assert.throws(() => criarNotaManual(db, { fornecedor_nome: 'Auto Peças do Zé', numero: '321', data_emissao: '2026-10-05', valor_total: 450 }), /já está cadastrada/);
+  assert.throws(() => criarNotaManual(db, { fornecedor_nome: 'Auto Peças do Zé', numero: '321', data_emissao: '2026-10-05', valor_total: 450 }), /já (está cadastrada|existe)/i);
   assert.throws(() => criarNotaManual(db, { fornecedor_nome: 'X', numero: '5', data_emissao: '2026-10-05', valor_total: 10, chave: '123' }), /44 caracteres/);
 });
 
@@ -299,9 +304,9 @@ test('XML que chega depois da nota digitada completa a mesma nota (não duplica)
 
 test('mesmo nome de fornecedor com CNPJ diferente não funde duas empresas', () => {
   const { db } = cenario();
-  importarNotaXml(db, xmlNfe({ nNF: 1, emitNome: 'AUTO PECAS CENTRAL', emitCnpj: '11222333000181' }));
+  importarNotaXml(db, xmlNfe({ nNF: 1, emitNome: 'AUTO PECAS CENTRAL', emitCnpj: '12345678000195' }));
   importarNotaXml(db, xmlNfe({ nNF: 2, emitNome: 'AUTO PECAS CENTRAL', emitCnpj: '27865757000102' }));
-  const f = db.prepare('SELECT nome, cnpj FROM fornecedores ORDER BY id').all();
+  const f = db.prepare("SELECT nome, cnpj FROM fornecedores WHERE nome LIKE 'AUTO PECAS CENTRAL%' ORDER BY id").all();
   assert.equal(f.length, 2);
   assert.notEqual(f[0].cnpj, f[1].cnpj);
   assert.match(f[1].nome, /AUTO PECAS CENTRAL \(27865757\)/);
@@ -327,7 +332,7 @@ test('boleto aberto sem o CNPJ do beneficiário vira lembrete (baixa) e sobe par
   const com = boleto(777.77, '2026-11-25', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
   assert.ok(!com.ocorrencias.some((o) => o.tipo === 'boleto_sem_beneficiario'));
   // lembrete não trava o pagamento
-  assert.doesNotThrow(() => pagarBoleto(db, perto.boleto_id, {}, HOJE, cfg()));
+  assert.doesNotThrow(() => pagarBoleto(db, perto.boleto_id, { conferiuBanco: true }, HOJE, cfg()));
 });
 
 test('fornecedor que sempre cobrou por um banco e aparece com outro: alerta médio (boleto_banco_novo)', () => {

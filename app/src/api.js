@@ -6,8 +6,8 @@ import { hoje as hojeBR, mesDe, normalizarPlaca, r2, somarMeses, somarDias } fro
 import { normalizarCnpj, cnpjValido } from './documentos.js';
 import * as V from './validar.js';
 import { criarApiCompras, ErroBloqueio } from './api_compras.js';
-import { pagarBoleto } from './boletos.js';
-import { ocorrencias as ocorrenciasCompras, resumoAuditoria } from './auditoria.js';
+import { pagarBoleto, desfazerPagamentoBoleto } from './boletos.js';
+import { ocorrencias as ocorrenciasCompras, resumoAuditoria, vereditoDoBoleto } from './auditoria.js';
 
 const SITUACOES = ['orcamento', 'aberta', 'concluida', 'cancelada'];
 const TIPOS_CLIENTE = ['avulso', 'frota', 'locadora', 'revenda'];
@@ -32,7 +32,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const h = hoje();
     const ym = req.query.mes ? V.mes(req.query.mes) : mesDe(h);
     // contas fixas só são geradas para o mês atual e o próximo; meses passados não ganham dívida retroativa
-    for (const alvo of [ym, somarMeses(ym, 1)]) if (alvo >= mesDe(h)) F.gerarRecorrentes(db, alvo);
+    const teto = somarMeses(mesDe(h), 1);
+    for (const alvo of [ym, somarMeses(ym, 1)]) if (alvo >= mesDe(h) && alvo <= teto) F.gerarRecorrentes(db, alvo);
     const tm = F.termometro(db, ym, h, cfg);
     const casc = F.cascata(db, ym, h, cfg);
     const eq = F.pontoEquilibrio(db, ym, cfg, cfg.retiradaSociosMeta);
@@ -279,7 +280,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM vendas WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'OS não encontrada.' });
     const v = vendaDe(req.body || {}, atual);
-    db.prepare(`UPDATE vendas SET numero=@numero, data=@data, cliente_id=@cliente_id, veiculo=@veiculo, placa=@placa, mecanico_id=@mecanico_id, situacao=@situacao, valor_total=@valor_total, valor_mao_obra=@valor_mao_obra, custo_pecas=@custo_pecas, custo_frete=@custo_frete, custo_insumos=@custo_insumos, forma_pagamento=@forma_pagamento, vencimento=@vencimento, obs=@obs, data_estimada=0 WHERE id=@id`).run({ ...v, id });
+    db.prepare(`UPDATE vendas SET numero=@numero, data=@data, cliente_id=@cliente_id, veiculo=@veiculo, placa=@placa, mecanico_id=@mecanico_id, situacao=@situacao, valor_total=@valor_total, valor_mao_obra=@valor_mao_obra, custo_pecas=@custo_pecas, custo_frete=@custo_frete, custo_insumos=@custo_insumos, forma_pagamento=@forma_pagamento, vencimento=@vencimento, obs=@obs, data_estimada=0, custo_pecas_auto=@auto WHERE id=@id`).run({ ...v, id, auto: (v.custo_pecas ?? null) === (atual.custo_pecas ?? null) ? atual.custo_pecas_auto : 0 });
     res.json({ ok: true });
   }));
   api.delete('/vendas/:id', wrap((req, res) => {
@@ -312,8 +313,18 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   api.get('/saidas', wrap((req, res) => {
     const h = hoje();
     const ym = req.query.mes ? V.mes(req.query.mes) : mesDe(h);
-    if (ym >= mesDe(h)) F.gerarRecorrentes(db, ym);
-    const linhas = F.saidasDoMes(db, ym).map((s) => ({ ...s, situacao: s.pago_em ? 'paga' : (s.vencimento < h ? 'atrasada' : 'a_pagar') }));
+    if (ym >= mesDe(h) && ym <= somarMeses(mesDe(h), 1)) F.gerarRecorrentes(db, ym);
+    // conta que nasceu de boleto mostra o veredito da conferência na própria linha (o dono vê antes de tocar em "Paguei")
+    const cfgCompras = lerConfig(db);
+    const boletosDoMes = new Map(db.prepare(`SELECT b.*, f.nome AS fornecedor FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.saida_id IS NOT NULL`).all().map((b) => [b.saida_id, b]));
+    const todas = boletosDoMes.size ? ocorrenciasCompras(db, h, cfgCompras) : [];
+    const linhas = F.saidasDoMes(db, ym).map((s) => {
+      const b = boletosDoMes.get(s.id);
+      return {
+        ...s, situacao: s.pago_em ? 'paga' : (s.vencimento < h ? 'atrasada' : 'a_pagar'),
+        boleto_id: b?.id ?? null, veredito: b ? vereditoDoBoleto(b, todas.filter((o) => o.boletos.includes(b.id)), cfgCompras) : null,
+      };
+    });
     const soma = (f) => r2(linhas.filter(f).reduce((a, s) => a + s.valor, 0));
     res.json({ mes: ym, linhas, totais: { total: soma(() => true), pagas: soma((s) => s.pago_em), aPagar: soma((s) => !s.pago_em), atrasadas: soma((s) => s.situacao === 'atrasada') } });
   }));
@@ -341,8 +352,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     if (!atual) return res.status(404).json({ erro: 'Conta não encontrada.' });
     const s = saidaDe(req.body || {}, atual);
     // valor e vencimento de uma conta nascida de boleto são do boleto: mudar aqui desligaria a conferência
-    if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id) && (s.valor !== atual.valor || s.vencimento !== atual.vencimento)) {
-      throw new V.ErroValidacao('Valor e vencimento desta conta vêm do boleto e não podem ser mudados aqui. Se o boleto foi cadastrado errado, cancele-o em Compras e cadastre de novo.');
+    if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id) && (s.valor !== atual.valor || s.vencimento !== atual.vencimento || s.categoria_id !== atual.categoria_id)) {
+      throw new V.ErroValidacao('Valor, vencimento e categoria desta conta vêm do boleto e não podem ser mudados aqui. Se o boleto foi cadastrado errado, cancele-o em Compras e cadastre de novo.');
     }
     db.prepare('UPDATE saidas SET descricao=@descricao, categoria_id=@categoria_id, fornecedor=@fornecedor, valor=@valor, vencimento=@vencimento, obs=@obs WHERE id=@id').run({ ...s, id });
     res.json({ ok: true });
@@ -364,13 +375,13 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       res.json(pagarBoleto(db, boleto.id, {
         data: req.body?.data ? V.data(req.body.data, { campo: 'A data' }) : null,
         valor: req.body?.valor ? V.dinheiro(req.body.valor, { campo: 'o valor pago', minimo: 0.01 }) : null,
-        aprovar: req.body?.aprovar === true, motivo: req.body?.motivo,
+        aprovar: req.body?.aprovar === true, motivo: req.body?.motivo, conferiuBanco: req.body?.conferiuBanco === true,
       }, hoje()));
       return;
     }
     if (desfazer) {
-      db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(id);
-      if (boleto && boleto.situacao === 'pago') db.prepare("UPDATE boletos SET situacao = 'aberto' WHERE id = ?").run(boleto.id);
+      if (boleto) desfazerPagamentoBoleto(db, boleto.id);
+      else db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(id);
     } else {
       db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = ? WHERE id = ?').run(V.data(req.body?.data || hoje(), { campo: 'A data' }), V.dinheiro(req.body?.valor ?? s.valor, { campo: 'o valor pago', minimo: 0.01 }), id);
     }

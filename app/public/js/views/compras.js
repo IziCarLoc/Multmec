@@ -1,4 +1,4 @@
-import { h, brl, brl0, dataBR, selo, vazio, carregando, toast, montar } from '../ui.js';
+import { h, brl, brl0, dataBR, selo, vazio, carregando, toast, montar, acao } from '../ui.js';
 import { GET, DEL } from '../api.js';
 import {
   listaOcorrencias, modalBoleto, modalNovoBoleto, modalBoletosEmLote, modalNota, modalNotaManual, modalImportarXml, modalFornecedor, modalExtratoFornecedor, chipSev,
@@ -6,7 +6,7 @@ import {
 
 const ABAS = [['auditoria', 'Conferência'], ['boletos', 'Boletos'], ['notas', 'Notas'], ['fornecedores', 'Fornecedores']];
 
-async function abaAuditoria(el, recarregar) {
+async function abaAuditoria(el, estado, recarregar) {
   const [resumo, oc] = await Promise.all([GET('/compras/resumo'), GET('/compras/ocorrencias')]);
   const a = resumo.auditoria;
   const grupos = ['alta', 'media', 'baixa'].map((sev) => [sev, oc.ocorrencias.filter((o) => o.severidade === sev)]).filter(([, l]) => l.length);
@@ -30,18 +30,19 @@ async function abaAuditoria(el, recarregar) {
         h('div', null, h('span', null, 'Dinheiro em risco'), h('b', { class: a.valorEmRisco ? 'ruim' : 'bom' }, brl0(a.valorEmRisco)))),
       h('p', { class: 'dica' }, `Vencem em 7 dias: ${resumo.boletosSemana.qtd} boleto(s), ${brl0(resumo.boletosSemana.valor)}. Notas do mês: ${resumo.notasMes.qtd}, ${brl0(resumo.notasMes.valor)}. Custo de peças já ligado às OS pelas notas: ${brl0(resumo.custoLigadoAOs)}.`)),
     grupos.length ? grupos.map(([sev, lista]) => h('section', { class: 'cartao' },
-      h('h2', null, `${TITULO[sev]} (${lista.length})`), listaComAbrir(lista.slice(0, 40), recarregar), lista.length > 40 ? h('small', null, `+ ${lista.length - 40} ocorrências`) : null))
+      h('h2', null, `${TITULO[sev]} (${lista.length})`), listaComAbrir(lista.slice(0, estado.verTudo?.[sev] ? lista.length : 40), recarregar),
+      lista.length > 40 && !estado.verTudo?.[sev] ? h('button', { class: 'pequeno', onclick: () => { (estado.verTudo ??= {})[sev] = true; recarregar(); } }, `Mostrar as outras ${lista.length - 40}`) : null))
       : h('section', { class: 'cartao' }, h('p', { class: 'bom' }, 'Tudo conferido: nenhuma ocorrência aberta.')),
     oc.aceitas.length ? h('details', { class: 'cartao' }, h('summary', null, `Conferidas e aceitas (${oc.aceitas.length})`),
-      oc.aceitas.slice(0, 50).map((o) => h('div', { class: 'linha-simples' }, h('div', null, h('b', null, o.titulo), h('small', null, `${o.aceita.motivo} · ${o.aceita.em}`)),
-        h('button', { class: 'pequeno', onclick: async () => { await DEL(`/compras/ocorrencias/aceite?chave=${encodeURIComponent(o.chave)}`); recarregar(); } }, 'Desfazer')))) : null);
+      oc.aceitas.slice(0, 50).map((o) => h('div', { class: 'linha-simples' }, h('div', null, h('b', null, o.titulo), h('small', null, `${o.aceita.motivo} · ${dataBR(o.aceita.em.slice(0, 10))} ${o.aceita.em.slice(11, 16)}`)),
+        h('button', { class: 'pequeno', onclick: acao(async () => { await DEL(`/compras/ocorrencias/aceite?chave=${encodeURIComponent(o.chave)}`); recarregar(); }) }, 'Desfazer')))) : null);
 }
 
 // cada ocorrência ganha um botão que abre a nota, o boleto ou a OS relacionada
 function listaComAbrir(lista, recarregar) {
   return h('div', { class: 'lista' }, lista.map((o) => {
     const bloco = listaOcorrencias([o], recarregar);
-    const alvo = o.entidade === 'boleto' ? () => modalBoleto(o.id, recarregar) : (o.entidade === 'nota' ? () => modalNota(o.id, recarregar) : (o.notas?.length ? () => modalNota(o.notas[0], recarregar) : null));
+    const alvo = o.entidade === 'boleto' ? acao(() => modalBoleto(o.id, recarregar)) : (o.entidade === 'nota' ? acao(() => modalNota(o.id, recarregar)) : (o.notas?.length ? acao(() => modalNota(o.notas[0], recarregar)) : null));
     if (alvo) bloco.querySelector('.botoes')?.prepend(h('button', { class: 'pequeno primario', onclick: alvo }, o.entidade === 'boleto' ? 'Abrir boleto' : 'Abrir nota'));
     return bloco;
   }));
@@ -54,9 +55,10 @@ async function abaBoletos(el, estado, recarregar) {
   const SEL = { aberto: 'Em aberto', sem_nota: 'Sem nota', pago: 'Pagos', todos: 'Todos' };
   montar(el,
     h('div', { class: 'botoes-topo' }, h('div', { class: 'abas-mini' }, Object.entries(SEL).map(([k, t]) => h('button', { class: filtro === k ? 'ativo' : '', onclick: () => { estado.filtroBoletos = k; recarregar(); } }, t))),
-      h('div', { class: 'acoes' }, h('button', { onclick: () => modalBoletosEmLote(recarregar) }, 'Colar vários'), h('button', { class: 'primario', onclick: () => modalNovoBoleto(recarregar) }, '+ Boleto'))),
-    lista.length ? h('div', { class: 'lista' }, lista.map((b) => h('button', { class: 'linha-os', onclick: () => modalBoleto(b.id, recarregar) },
-      h('div', null, h('b', null, b.fornecedor ?? 'Fornecedor não informado'), b.pior ? chipSev(b.pior) : selo('conferido', 'ok')),
+      h('div', { class: 'acoes' }, h('button', { onclick: acao(() => modalBoletosEmLote(recarregar)) }, 'Colar vários'), h('button', { class: 'primario', onclick: acao(() => modalNovoBoleto(recarregar)) }, '+ Boleto'))),
+    lista.length ? h('div', { class: 'lista' }, lista.map((b) => h('button', { class: 'linha-os', onclick: acao(() => modalBoleto(b.id, recarregar)) },
+      h('div', null, h('b', null, b.fornecedor ?? 'Fornecedor não informado')),
+      h('div', { class: 'sub' }, selo(b.veredito.texto.length > 46 ? `${b.veredito.texto.slice(0, 44)}…` : b.veredito.texto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[b.veredito.nivel])),
       h('div', { class: 'sub' }, `vence ${dataBR(b.vencimento)}`, selo(b.situacao, b.situacao === 'pago' ? 'ok' : b.situacao === 'aberto' ? 'info' : 'neutro'), b.ligacoes ? null : selo('sem nota', 'critico')),
       h('div', { class: 'valores' }, h('b', null, brl(b.valor)), h('span', null, b.numero_documento ? `doc ${b.numero_documento}` : `${b.ocorrencias} ocorrência(s)`))))) : vazio('Nenhum boleto neste filtro. Cadastre cada boleto que chegar com "+ Boleto".'));
 }
@@ -68,8 +70,8 @@ async function abaNotas(el, estado, recarregar) {
   let t;
   busca.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { estado.buscaNotas = busca.value; recarregar(); }, 350); });
   montar(el,
-    h('div', { class: 'botoes-topo' }, busca, h('div', { class: 'acoes' }, h('button', { onclick: () => modalImportarXml(recarregar) }, 'Importar XML'), h('button', { class: 'primario', onclick: () => modalNotaManual(recarregar) }, '+ Nota'))),
-    lista.length ? h('div', { class: 'lista' }, lista.map((n) => h('button', { class: 'linha-os', onclick: () => modalNota(n.id, recarregar) },
+    h('div', { class: 'botoes-topo' }, busca, h('div', { class: 'acoes' }, h('button', { onclick: () => modalImportarXml(recarregar) }, 'Importar XML'), h('button', { class: 'primario', onclick: acao(() => modalNotaManual(recarregar)) }, '+ Nota'))),
+    lista.length ? h('div', { class: 'lista' }, lista.map((n) => h('button', { class: 'linha-os', onclick: acao(() => modalNota(n.id, recarregar)) },
       h('div', null, h('b', null, `Nota ${n.numero} · ${n.fornecedor}`), n.situacao === 'cancelada' ? selo('cancelada', 'neutro') : n.finalidade === 'devolucao' ? selo('devolução', 'info') : null),
       h('div', { class: 'sub' }, dataBR(n.data_emissao), n.saldo > 0.05 && n.finalidade !== 'devolucao' && n.situacao === 'ativa' ? selo(`sem boleto ${brl0(n.saldo)}`, 'aviso') : null, n.sem_destino ? selo('peças sem destino', 'aviso') : null, n.origem === 'manual' ? selo('digitada', 'neutro') : null),
       h('div', { class: 'valores' }, h('b', null, brl(n.valor_total)), h('span', null, n.chave ? 'XML' : 'manual'))))) : vazio('Nenhuma nota. Importe os XML que os fornecedores mandam por e-mail.'));
@@ -80,8 +82,8 @@ async function abaFornecedores(el, recarregar) {
   montar(el,
     h('div', { class: 'botoes-topo' }, h('span', { class: 'dica' }, 'O CNPJ permite conferir se o beneficiário do boleto é o fornecedor.'), h('button', { class: 'primario', onclick: () => modalFornecedor(null, recarregar) }, '+ Fornecedor')),
     lista.length ? h('div', { class: 'lista' }, lista.map((f) => h('div', { class: 'linha-os' },
-      h('button', { class: 'linha-conta-info', onclick: () => modalExtratoFornecedor(f.id, recarregar) },
-        h('div', null, h('b', null, f.nome), f.principal ? selo('principal', 'info') : null, f.cnpj ? null : selo('sem CNPJ', 'aviso'), f.ativo ? null : selo('inativo', 'neutro')),
+      h('button', { class: 'linha-conta-info', onclick: acao(() => modalExtratoFornecedor(f.id, recarregar)) },
+        h('div', null, h('b', null, f.nome), f.principal ? selo('principal', 'info') : null, f.cnpj ? null : selo('sem CNPJ', 'aviso'), f.confirmado_em ? null : selo('não conferido', 'aviso'), f.ativo ? null : selo('inativo', 'neutro')),
         h('div', { class: 'sub' }, `${f.notas} nota(s) · comprado ${brl0(f.comprado)} · em aberto ${brl0(f.boletos_abertos)}`, f.boletos_sem_nota ? selo(`${f.boletos_sem_nota} boleto(s) sem nota`, 'critico') : null)),
       h('div', { class: 'botoes' }, h('button', { class: 'pequeno', onclick: () => modalFornecedor(f, recarregar) }, 'Editar'))))) : vazio('Cadastre o fornecedor principal e os menores. Também são criados sozinhos ao importar um XML.'));
 }
@@ -96,7 +98,7 @@ export async function compras(el, estado) {
     corpo);
   montar(corpo, carregando());
   try {
-    if (aba === 'auditoria') await abaAuditoria(corpo, recarregar);
+    if (aba === 'auditoria') await abaAuditoria(corpo, estado, recarregar);
     else if (aba === 'boletos') await abaBoletos(corpo, estado, recarregar);
     else if (aba === 'notas') await abaNotas(corpo, estado, recarregar);
     else await abaFornecedores(corpo, recarregar);

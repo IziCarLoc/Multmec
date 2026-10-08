@@ -12,35 +12,41 @@ const PAPEIS = [
   { papel: 'avalista', re: /sacador|avalista/g },
 ];
 
-/** Procura a linha digitável (47), o convênio (48) ou o código de barras (44) dentro do texto. */
+/**
+ * Procura a linha digitável (47), o convênio (48) ou o código de barras (44) dentro do texto.
+ * Devolve o boleto lido e o trecho do texto que ocupa (para não confundir esses números com CNPJ).
+ */
 export function acharLinhaNoTexto(texto, hojeStr) {
   const t = String(texto ?? '');
   const vistos = new Set();
   const candidatos = [];
   for (const m of t.matchAll(/\d[\d .\-]{40,80}\d/g)) {
     const dig = m[0].replace(/\D/g, '');
-    for (const n of [47, 48, 44]) {
-      // um número solto antes da linha (agência, código) desloca o início: tenta alguns recuos, os dígitos verificadores filtram
-      for (let ini = 0; ini <= Math.min(dig.length - n, 20); ini++) {
-        const trecho = dig.slice(ini, ini + n);
-        if (vistos.has(trecho)) continue;
-        vistos.add(trecho);
-        candidatos.push(trecho);
-      }
+    const trecho = [m.index, m.index + m[0].length];
+    // 44 e 48 dígitos só valem como sequência inteira (senão uma linha de 47 com erro "vira" outro boleto);
+    // a linha de 47 aceita um número solto antes dela (agência, código), desde que a moeda (4º dígito) seja 9
+    if (dig.length === 44 || dig.length === 48) candidatos.push({ digitos: dig, trecho });
+    for (let ini = 0; ini <= Math.min(dig.length - 47, 20); ini++) {
+      const c = dig.slice(ini, ini + 47);
+      if (ini > 0 && c[3] !== '9') continue;
+      if (vistos.has(c)) continue;
+      vistos.add(c);
+      candidatos.push({ digitos: c, trecho });
     }
   }
   for (const c of candidatos) {
-    const r = interpretarBoleto(c, hojeStr);
-    if (r.ok) return r;
+    const r = interpretarBoleto(c.digitos, hojeStr);
+    if (r.ok) return { ...r, trecho: c.trecho };
   }
   return null;
 }
 
-/** CNPJs válidos do texto com o papel indicado pelo rótulo mais próximo antes deles. */
+/** CNPJs válidos do texto (numéricos e alfanuméricos com máscara) com o papel indicado pelo rótulo mais próximo antes deles. */
 export function cnpjsDoTexto(texto) {
   const t = semAcento(texto);
   const achados = [];
-  for (const m of t.matchAll(/(?<!\d)\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}(?!\d)/g)) {
+  const regex = /(?<![0-9a-z])(?:\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}|[0-9a-z]{2}\.[0-9a-z]{3}\.[0-9a-z]{3}\/[0-9a-z]{4}-\d{2})(?![0-9a-z])/g;
+  for (const m of t.matchAll(regex)) {
     const cnpj = normalizarCnpj(m[0]);
     if (!cnpjValido(cnpj)) continue;
     const antes = t.slice(Math.max(0, m.index - 160), m.index);
@@ -67,9 +73,12 @@ function numeroDocumento(texto) {
  */
 export function lerTextoDoBoleto(texto, hojeStr) {
   const avisos = [];
-  const boleto = acharLinhaNoTexto(texto, hojeStr);
+  const original = String(texto ?? '');
+  const boleto = acharLinhaNoTexto(original, hojeStr);
   if (!boleto) avisos.push('Não encontrei uma linha digitável válida no texto colado.');
-  const cnpjs = cnpjsDoTexto(texto);
+  // os 14 últimos dígitos da linha (fator + valor) têm cara de CNPJ: tira o trecho da linha antes de procurar CNPJ
+  const semLinha = boleto ? `${original.slice(0, boleto.trecho[0])} ${' '.repeat(Math.max(0, boleto.trecho[1] - boleto.trecho[0]))} ${original.slice(boleto.trecho[1])}` : original;
+  const cnpjs = cnpjsDoTexto(semLinha);
   const unico = (papel) => {
     const lista = [...new Set(cnpjs.filter((c) => c.papel === papel).map((c) => c.cnpj))];
     if (lista.length > 1) { avisos.push(`Achei mais de um CNPJ marcado como ${papel === 'pagador' ? 'pagador' : 'beneficiário'}; digite o correto.`); return null; }
@@ -79,5 +88,6 @@ export function lerTextoDoBoleto(texto, hojeStr) {
   const pagadorCnpj = unico('pagador');
   if (!beneficiarioCnpj && cnpjs.length) avisos.push('Há CNPJ no texto, mas não consegui dizer qual é o do beneficiário. Confira no boleto e digite.');
   if (beneficiarioCnpj && beneficiarioCnpj === pagadorCnpj) avisos.push('O CNPJ do beneficiário é igual ao do pagador: confira no boleto.');
-  return { boleto, beneficiarioCnpj, pagadorCnpj, numeroDocumento: numeroDocumento(texto), cnpjs, avisos };
+  const { trecho, ...leitura } = boleto ?? {};
+  return { boleto: boleto ? leitura : null, beneficiarioCnpj, pagadorCnpj, numeroDocumento: numeroDocumento(original), cnpjs, avisos };
 }
