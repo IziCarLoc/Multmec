@@ -21,17 +21,18 @@ export function duplicatasComSaldo(db, notaId) {
 }
 
 function notasCandidatas(db, boleto) {
-  let filtro = 'n.finalidade <> \'devolucao\' AND n.situacao = \'ativa\'';
+  let filtro = 'n.finalidade NOT IN (\'devolucao\',\'ajuste\') AND n.situacao = \'ativa\'';
   const p = { venc: boleto.vencimento, de: somarDias(boleto.vencimento, -180), ate: somarDias(boleto.vencimento, 7) };
   let fornecedorId = boleto.fornecedor_id;
   if (!fornecedorId && boleto.beneficiario_cnpj) {
     fornecedorId = db.prepare('SELECT id FROM fornecedores WHERE cnpj = ?').get(normalizarCnpj(boleto.beneficiario_cnpj))?.id ?? null;
   }
   if (fornecedorId) { filtro += ' AND n.fornecedor_id = @forn'; p.forn = fornecedorId; }
-  const linhas = db.prepare(`SELECT n.id, n.numero, n.data_emissao, n.valor_total, n.fornecedor_id,
-      n.valor_total - COALESCE((SELECT SUM(c.valor) FROM conciliacoes c WHERE c.nota_id = n.id), 0) AS aberto
+  const linhas = db.prepare(`SELECT n.id, n.numero, n.data_emissao, n.valor_total, n.valor_com_tributos, n.fornecedor_id,
+      COALESCE((SELECT SUM(c.valor) FROM conciliacoes c WHERE c.nota_id = n.id), 0) AS conciliado
       FROM notas_compra n WHERE ${filtro} AND n.data_emissao >= @de AND n.data_emissao <= @ate ORDER BY n.data_emissao DESC`).all(p);
-  return linhas.filter((n) => n.aberto > 0.004).map((n) => ({ ...n, aberto: r2(n.aberto), duplicatas: duplicatasComSaldo(db, n.id).filter((d) => d.saldo > 0.004) }));
+  return linhas.map((n) => ({ ...n, aberto: r2(n.valor_total - n.conciliado), abertoAlt: n.valor_com_tributos ? r2(n.valor_com_tributos - n.conciliado) : null }))
+    .filter((n) => n.aberto > 0.004).map((n) => ({ ...n, duplicatas: duplicatasComSaldo(db, n.id).filter((d) => d.saldo > 0.004) }));
 }
 
 const digitosDoc = (t) => [...String(t ?? '').matchAll(/\d+/g)].map((m) => String(Number(m[0])));
@@ -76,8 +77,10 @@ export function sugerirNotas(db, boleto, cfg = lerConfig(db)) {
     if (n.duplicatas.length > 1 && Math.abs(n.aberto - boleto.valor) <= tol) {
       add([{ nota_id: n.id, numero: n.numero, valor: boleto.valor }], numeroConfere ? 90 : 70, 'o boleto cobre o saldo da nota inteira (todas as parcelas juntas)');
     }
-    if (!n.duplicatas.length && Math.abs(n.aberto - boleto.valor) <= tol) {
-      add([{ nota_id: n.id, numero: n.numero, valor: boleto.valor }], numeroConfere ? 95 : 80, numeroConfere ? 'número do documento e valor batem com a nota' : 'valor igual ao saldo da nota (sem parcelas informadas)');
+    const valorComTributos = n.abertoAlt !== null && Math.abs(n.abertoAlt - boleto.valor) <= tol;
+    if (!n.duplicatas.length && (Math.abs(n.aberto - boleto.valor) <= tol || valorComTributos)) {
+      add([{ nota_id: n.id, numero: n.numero, valor: boleto.valor }], numeroConfere ? 95 : 80, numeroConfere ? 'número do documento e valor batem com a nota'
+        : valorComTributos ? 'valor igual ao total da nota com tributos por fora (sem parcelas informadas)' : 'valor igual ao saldo da nota (sem parcelas informadas)');
     } else if (numeroConfere && !n.duplicatas.some((d) => Math.abs(d.saldo - boleto.valor) <= tol)) {
       const valor = Math.min(boleto.valor, n.aberto);
       add([{ nota_id: n.id, numero: n.numero, valor }], 75, 'o número do documento bate com a nota, mas o VALOR do boleto é diferente do esperado', { valorDiverge: true });

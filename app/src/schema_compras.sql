@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS notas_compra (
   serie TEXT NOT NULL DEFAULT '',
   data_emissao TEXT NOT NULL,
   valor_total REAL NOT NULL,                     -- vNF: o que realmente se paga
+  valor_com_tributos REAL,                       -- vNFTot (IBS/CBS por fora), só quando difere de vNF: o boleto pode vir por qualquer um
   valor_produtos REAL, valor_frete REAL, valor_desconto REAL,
   cnpj_emitente TEXT, nome_emitente TEXT,
   cnpj_destinatario TEXT, nome_destinatario TEXT,

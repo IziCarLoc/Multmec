@@ -18,7 +18,7 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
 
   const boletos = db.prepare(`SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj FROM boletos b
       LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.situacao <> 'cancelado'`).all();
-  const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao, n.valor_total AS nota_total,
+  const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao, n.protocolo_status AS nota_protocolo, n.valor_total AS nota_total,
       d.valor AS dup_valor, d.vencimento AS dup_venc FROM conciliacoes c JOIN notas_compra n ON n.id = c.nota_id
       LEFT JOIN nota_duplicatas d ON d.id = c.duplicata_id`).all();
   const porBoleto = new Map();
@@ -63,7 +63,8 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
       for (const c of cs) {
         if (c.nota_situacao === 'cancelada') {
           add({ tipo: 'nota_cancelada_com_boleto', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: [c.nota_id], valor: b.valor, data: b.vencimento,
-            titulo: 'Boleto de nota CANCELADA', detalhe: `${resumoB}. A nota ${c.nota_numero} foi cancelada: não deveria haver cobrança.` });
+            titulo: ['110', '301', '302', '303'].includes(c.nota_protocolo) ? 'Boleto de nota DENEGADA' : 'Boleto de nota CANCELADA',
+            detalhe: `${resumoB}. A nota ${c.nota_numero} foi ${['110', '301', '302', '303'].includes(c.nota_protocolo) ? 'denegada (não vale como nota fiscal)' : 'cancelada'}: não deveria haver cobrança.` });
           break;
         }
       }
@@ -83,6 +84,15 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
       const mesmaRaiz = raiz(b.pagador_cnpj) === raiz(cfg.cnpjOficina);
       add({ tipo: 'boleto_pagador_diverge', severidade: mesmaRaiz ? 'media' : 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
         titulo: 'Boleto emitido contra outro CNPJ', detalhe: `${resumoB}. O pagador do boleto é ${formatarCnpj(b.pagador_cnpj)}, não a oficina (${formatarCnpj(cfg.cnpjOficina)}). Este boleto pode não ser de vocês.` });
+    }
+    // fornecedor que sempre cobrou por um banco e agora aparece com outro: sinal clássico de boleto adulterado (ou de troca legítima de conta)
+    if (b.fornecedor_id && b.banco) {
+      const anteriores = boletos.filter((x) => x.fornecedor_id === b.fornecedor_id && x.id < b.id && x.banco);
+      if (anteriores.length >= 2 && anteriores.every((x) => x.banco !== b.banco)) {
+        add({ tipo: 'boleto_banco_novo', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
+          titulo: 'Banco diferente do que o fornecedor costuma usar',
+          detalhe: `${resumoB}. É um boleto do banco ${b.banco}; os ${anteriores.length} anteriores deste fornecedor eram de ${[...new Set(anteriores.map((x) => x.banco))].join(', ')}. Pode ser troca de conta, mas é também o sinal mais comum de boleto adulterado: confirme por telefone.` });
+      }
     }
     if (b.situacao === 'aberto' && b.vencimento < hojeStr) {
       add({ tipo: 'boleto_vencido', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
@@ -114,11 +124,11 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
       add({ tipo: 'nota_destinatario_diverge', severidade: raiz(n.cnpj_destinatario) === raiz(cfg.cnpjOficina) ? 'media' : 'alta', entidade: 'nota', id: n.id, notas: [n.id], boletos: cs.map((c) => c.boleto_id), valor: n.valor_total, data: n.data_emissao,
         titulo: 'Nota emitida para outro CNPJ', detalhe: `Nota ${n.numero} de ${n.fornecedor} (${reais(n.valor_total)}) está em nome de ${formatarCnpj(n.cnpj_destinatario)}${n.nome_destinatario ? ` (${n.nome_destinatario})` : ''}, e não da oficina.` });
     }
-    if (conciliado > n.valor_total + tol) {
+    if (conciliado > Math.max(n.valor_total, n.valor_com_tributos ?? 0) + tol) {
       add({ tipo: 'nota_cobrada_a_mais', severidade: 'alta', entidade: 'nota', id: n.id, notas: [n.id], boletos: cs.map((c) => c.boleto_id), valor: r2(conciliado - n.valor_total), data: n.data_emissao,
-        titulo: 'Boletos somam mais que a nota', detalhe: `Nota ${n.numero} de ${n.fornecedor}: ${reais(n.valor_total)}. Os boletos ligados somam ${reais(conciliado)}. Possível cobrança em duplicidade.` });
+        titulo: 'Boletos somam mais que a nota', detalhe: `Nota ${n.numero} de ${n.fornecedor}: ${reais(Math.max(n.valor_total, n.valor_com_tributos ?? 0))}. Os boletos ligados somam ${reais(conciliado)}. Possível cobrança em duplicidade.` });
     }
-    if (n.finalidade === 'devolucao') continue;       // devolução é crédito, não gera boleto
+    if (n.finalidade === 'devolucao' || n.finalidade === 'ajuste') continue;       // devolução é crédito e ajuste é fiscal: nenhum gera boleto
     if (n.situacao === 'cancelada') continue;
     const saldo = r2(n.valor_total - conciliado);
     if (saldo > tol) {
@@ -157,7 +167,7 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
       const itens = db.prepare('SELECT * FROM nota_itens WHERE nota_id = ? AND codigo IS NOT NULL AND valor_unitario > 0').all(n.id);
       for (const i of itens) {
         const ant = db.prepare(`SELECT i2.valor_unitario FROM nota_itens i2 JOIN notas_compra n2 ON n2.id = i2.nota_id
-            WHERE n2.fornecedor_id = ? AND i2.codigo = ? AND (n2.data_emissao < ? OR (n2.data_emissao = ? AND n2.id < ?)) AND n2.finalidade <> 'devolucao' AND i2.valor_unitario > 0
+            WHERE n2.fornecedor_id = ? AND i2.codigo = ? AND (n2.data_emissao < ? OR (n2.data_emissao = ? AND n2.id < ?)) AND n2.finalidade NOT IN ('devolucao','ajuste') AND i2.valor_unitario > 0
             ORDER BY n2.data_emissao DESC, n2.id DESC LIMIT 5`).all(n.fornecedor_id, i.codigo, n.data_emissao, n.data_emissao, n.id).map((x) => x.valor_unitario).sort((a, b) => a - b);
         if (ant.length >= 2) {
           const mediana = ant[Math.floor(ant.length / 2)];

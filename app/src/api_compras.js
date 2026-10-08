@@ -26,7 +26,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     const lista = ocorrencias(db, h, cfg);
     const bol = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(valor), 0) AS v FROM boletos WHERE situacao = 'aberto'").get();
     const prox = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(valor), 0) AS v FROM boletos WHERE situacao = 'aberto' AND vencimento <= ?").get(somarDias(h, 7));
-    const mes = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(valor_total), 0) AS v FROM notas_compra WHERE substr(data_emissao, 1, 7) = ? AND finalidade <> 'devolucao' AND situacao = 'ativa'").get(mesDe(h));
+    const mes = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(valor_total), 0) AS v FROM notas_compra WHERE substr(data_emissao, 1, 7) = ? AND finalidade NOT IN ('devolucao','ajuste') AND situacao = 'ativa'").get(mesDe(h));
     const cob = db.prepare(`SELECT COALESCE(SUM(a.valor), 0) AS nf FROM alocacoes a WHERE a.destino = 'os'`).get();
     res.json({
       hoje: h, auditoria: resumoAuditoria(lista),
@@ -70,7 +70,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
   };
   r.get('/fornecedores', wrap((req, res) => {
     const linhas = db.prepare(`SELECT f.*,
-        (SELECT COALESCE(SUM(n.valor_total), 0) FROM notas_compra n WHERE n.fornecedor_id = f.id AND n.situacao = 'ativa' AND n.finalidade <> 'devolucao') AS comprado,
+        (SELECT COALESCE(SUM(n.valor_total), 0) FROM notas_compra n WHERE n.fornecedor_id = f.id AND n.situacao = 'ativa' AND n.finalidade NOT IN ('devolucao','ajuste')) AS comprado,
         (SELECT COUNT(*) FROM notas_compra n WHERE n.fornecedor_id = f.id) AS notas,
         (SELECT COALESCE(SUM(b.valor), 0) FROM boletos b WHERE b.fornecedor_id = f.id AND b.situacao = 'aberto') AS boletos_abertos,
         (SELECT COUNT(*) FROM boletos b WHERE b.fornecedor_id = f.id AND b.situacao IN ('aberto','pago') AND NOT EXISTS (SELECT 1 FROM conciliacoes c WHERE c.boleto_id = b.id)) AS boletos_sem_nota
@@ -108,9 +108,9 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
     res.json({
       fornecedor: f,
       totais: {
-        comprado: t(notas.filter((n) => n.situacao === 'ativa' && n.finalidade !== 'devolucao').map((n) => n.valor_total)),
+        comprado: t(notas.filter((n) => n.situacao === 'ativa' && !['devolucao', 'ajuste'].includes(n.finalidade)).map((n) => n.valor_total)),
         devolvido: t(notas.filter((n) => n.finalidade === 'devolucao').map((n) => n.valor_total)),
-        notasSemBoleto: t(notas.filter((n) => n.situacao === 'ativa' && n.finalidade !== 'devolucao' && n.saldo > 0.05).map((n) => n.saldo)),
+        notasSemBoleto: t(notas.filter((n) => n.situacao === 'ativa' && !['devolucao', 'ajuste'].includes(n.finalidade) && n.saldo > 0.05).map((n) => n.saldo)),
         boletosAbertos: t(boletos.filter((b) => b.situacao === 'aberto').map((b) => b.valor)),
         boletosPagos: t(boletos.filter((b) => b.situacao === 'pago').map((b) => b.valor)),
         boletosSemNota: t(boletos.filter((b) => ['aberto', 'pago'].includes(b.situacao) && !b.ligacoes).map((b) => b.valor)),
@@ -250,7 +250,7 @@ export function criarApiCompras(db, { agora = () => new Date() } = {}) {
         i.quantidade - COALESCE((SELECT SUM(a.quantidade) FROM alocacoes a WHERE a.item_id = i.id), 0) AS restante_qtd,
         i.custo_total - COALESCE((SELECT SUM(a.valor) FROM alocacoes a WHERE a.item_id = i.id), 0) AS restante_valor
         FROM nota_itens i JOIN notas_compra n ON n.id = i.nota_id JOIN fornecedores f ON f.id = n.fornecedor_id
-        WHERE n.situacao = 'ativa' AND n.finalidade <> 'devolucao' AND n.data_emissao >= @de
+        WHERE n.situacao = 'ativa' AND n.finalidade NOT IN ('devolucao','ajuste') AND n.data_emissao >= @de
           AND (@q = '' OR i.descricao LIKE '%' || @q || '%' OR i.codigo LIKE '%' || @q || '%' OR n.numero LIKE '%' || @q || '%' OR f.nome LIKE '%' || @q || '%')
         ORDER BY n.data_emissao DESC, i.n_item LIMIT 80`).all({ q, de: somarDias(hoje(), -120) });
     res.json(linhas.filter((l) => l.restante_qtd > 1e-6).map((l) => ({ ...l, restante_valor: r2(l.restante_valor) })));

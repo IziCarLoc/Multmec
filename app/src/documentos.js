@@ -42,8 +42,8 @@ export function dvChaveNfe(base43) {
 
 /**
  * Valida e decompõe a chave de acesso de 44 posições.
- * Com CNPJ alfanumérico a máscara é [0-9]{6}[A-Z0-9]{12}[0-9]{26}; o DV nesse caso segue a mesma regra
- * (ASCII - 48), mas a fonte oficial não foi conferida: `dvConfere` vem false/true e `dvIncerto` marca o caso.
+ * Com CNPJ alfanumérico (NT Conjunta 2025.001) a máscara é [0-9]{6}[A-Z0-9]{12}[0-9]{26} e o DV usa a mesma
+ * regra, com cada caractere valendo o código ASCII menos 48.
  */
 export function lerChaveNfe(txt) {
   const chave = String(txt ?? '').replace(/[\s.-]/g, '').toUpperCase();
@@ -63,6 +63,5 @@ export function lerChaveNfe(txt) {
     modelo: chave.slice(20, 22),
     serie: String(Number(chave.slice(22, 25))),
     numero: String(Number(chave.slice(25, 34))),
-    dvIncerto: /[A-Z]/.test(cnpjEmitente),
   };
 }

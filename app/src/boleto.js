@@ -48,19 +48,21 @@ export function dvModulo11Convenio(digitos) {
 const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 /**
- * Fator de vencimento -> data. O fator tem 4 dígitos e se repete a cada 9.000 dias: em 22/02/2025 voltou a 1000.
- * Entre as datas candidatas (ciclo antigo e seguintes) escolhe a mais perto de "hoje".
+ * Fator de vencimento -> data. O fator tem 4 dígitos e se repete a cada 9.000 dias (em 22/02/2025 voltou a 1000),
+ * então a mesma sequência serve para duas datas. O modelo dos bancos resolve isso com uma janela em torno de
+ * "hoje": até 3.000 dias para trás e 5.500 para frente (3.001 de tolerância). Fator fora da janela ou abaixo de
+ * 1000 não tem data confiável: devolve null.
  */
 export function fatorParaData(fator, hojeStr) {
   const f = Number(fator);
-  if (!Number.isInteger(f) || f <= 0) return null;
+  if (!Number.isInteger(f) || f < 1000 || f > 9999) return null;
   const hoje = Date.parse(`${hojeStr}T12:00:00Z`);
-  let melhor = null;
   for (let ciclo = 0; ciclo <= 3; ciclo++) {
     const ms = BASE_FATOR + (f + ciclo * 9000) * DIA;
-    if (melhor === null || Math.abs(ms - hoje) < Math.abs(melhor - hoje)) melhor = ms;
+    const delta = Math.round((ms - hoje) / DIA);
+    if (delta >= -3001 && delta <= 5500) return iso(ms);
   }
-  return iso(melhor);
+  return null;
 }
 
 /** Data -> fator (útil para montar casos de teste). Datas a partir de 22/02/2025 usam o ciclo novo. */
@@ -116,11 +118,15 @@ export function interpretarBoleto(texto, hojeStr) {
   if (barras[3] !== '9') r.avisos.push('Moeda diferente de real (9).');
   r.fator = barras.slice(5, 9);
   r.valor = Number(barras.slice(9, 19)) / 100;
-  if (r.fator === '0000') r.avisos.push('Boleto sem fator de vencimento (pagável a qualquer momento): confira a data impressa.');
+  if (r.fator === '0000') r.avisos.push('O código deste boleto não traz o vencimento (fator 0000). Boleto de fornecedor deve ter data: confira o papel e confirme com o fornecedor.');
+  else if (Number(r.fator) < 1000) r.erros.push(`Fator de vencimento inválido (${r.fator}): nenhum banco emite fator abaixo de 1000.`);
   else {
     r.vencimento = fatorParaData(r.fator, hojeStr);
-    const dias = Math.round((Date.parse(`${r.vencimento}T12:00:00Z`) - Date.parse(`${hojeStr}T12:00:00Z`)) / DIA);
-    if (dias > 400 || dias < -400) r.avisos.push(`Vencimento muito distante de hoje (${r.vencimento}): confira.`);
+    if (!r.vencimento) r.erros.push(`O vencimento gravado no código (fator ${r.fator}) cai fora da faixa que os bancos aceitam. Boleto estranho: não pague antes de confirmar com o fornecedor e com o banco.`);
+    else {
+      const dias = Math.round((Date.parse(`${r.vencimento}T12:00:00Z`) - Date.parse(`${hojeStr}T12:00:00Z`)) / DIA);
+      if (dias > 400 || dias < -400) r.avisos.push(`Vencimento muito distante de hoje (${r.vencimento}): confira.`);
+    }
   }
   if (r.valor === 0) r.avisos.push('Boleto sem valor definido (qualquer valor): informe o valor combinado.');
   r.ok = r.erros.length === 0;

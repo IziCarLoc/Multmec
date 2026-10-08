@@ -31,7 +31,11 @@ const dataIso = (v) => {
   return m ? m[1] : null;
 };
 
-const FINALIDADE = { 1: 'normal', 2: 'complementar', 3: 'ajuste', 4: 'devolucao' };
+// 5 (nota de crédito) abate o que se deve, como a devolução; 6 (nota de débito) acrescenta, como a complementar
+const FINALIDADE = { 1: 'normal', 2: 'complementar', 3: 'ajuste', 4: 'devolucao', 5: 'devolucao', 6: 'complementar' };
+// cStat do protocolo: 100/150 autorizada; 101/151 cancelada; 110/301/302/303 uso denegado (a nota existe mas não vale)
+const CSTAT_CANCELADA = new Set(['101', '151']);
+const CSTAT_DENEGADA = new Set(['110', '301', '302', '303']);
 
 /** Lê o XML. Aceita nfeProc (com protocolo), NFe solta e o XML de evento de cancelamento. */
 export function lerXmlNfe(xml) {
@@ -68,10 +72,14 @@ export function lerXmlNfe(xml) {
     throw new ErroNfe('XML inconsistente: número ou série não batem com a chave de acesso. Não use este arquivo.');
   }
 
+  if (String(ide.tpAmb) === '2') throw new ErroNfe('Esta nota foi emitida em ambiente de HOMOLOGAÇÃO (teste) e não tem valor fiscal. Peça a nota verdadeira ao fornecedor.');
+
   const dest = inf.dest ?? {};
   const total = inf.total?.ICMSTot ?? {};
   const valorNf = num(total.vNF);
   if (valorNf === null) throw new ErroNfe('A nota não traz o valor total (vNF).');
+  // Reforma tributária: IBS/CBS "por fora" ficam em vNFTot; o boleto pode vir por qualquer um dos dois valores
+  const valorComTributos = num(inf.total?.vNFTot);
 
   const itens = (inf.det ?? []).map((d, i) => {
     const p = d.prod ?? {};
@@ -97,11 +105,26 @@ export function lerXmlNfe(xml) {
 
   const prot = doc.nfeProc?.protNFe?.infProt ?? null;
   const avisos = [];
-  if (!prot) avisos.push('XML sem protocolo de autorização (não é o arquivo "nfeProc"): confirme a autenticidade pela chave no portal da NF-e.');
-  else if (String(prot.cStat) !== '100') avisos.push(`Situação no protocolo: ${prot.cStat} ${prot.xMotivo ?? ''}. Só cStat 100 é nota autorizada.`);
+  const cstat = prot ? String(prot.cStat) : null;
+  let situacao = 'ativa';
+  if (!prot) avisos.push('XML sem protocolo de autorização (não é o arquivo "nfeProc"): ainda não dá para dizer que a nota foi autorizada. Confirme pela chave no portal da NF-e.');
+  else if (prot.chNFe && String(prot.chNFe) !== chave.chave) throw new ErroNfe('XML inconsistente: a chave do protocolo é diferente da chave da nota. Não use este arquivo.');
+  else if (CSTAT_CANCELADA.has(cstat)) { situacao = 'cancelada'; avisos.push('O protocolo diz que esta nota foi CANCELADA. Boleto dela não é devido.'); }
+  else if (CSTAT_DENEGADA.has(cstat)) { situacao = 'cancelada'; avisos.push(`O protocolo diz que o uso desta nota foi DENEGADO (${cstat}): ela não vale como documento fiscal. Boleto dela não é devido.`); }
+  else if (cstat !== '100' && cstat !== '150') avisos.push(`Situação no protocolo: ${cstat} ${prot.xMotivo ?? ''}. Só 100 e 150 são nota autorizada.`);
   if (String(ide.tpNF) === '0') avisos.push('Esta nota é de ENTRADA (emitida pela própria oficina), não uma venda do fornecedor.');
   if (cnpjEmit && !cnpjValido(cnpjEmit) && cnpjEmit.length === 14) avisos.push('O CNPJ do emitente não passa na validação do dígito verificador.');
-  if (chave.dvIncerto) avisos.push('CNPJ alfanumérico na chave: o dígito verificador da chave não foi conferido contra fonte oficial.');
+  const fin = Number(ide.finNFe);
+  if (fin === 3) avisos.push('Nota de AJUSTE: não gera cobrança. Se veio boleto com ela, desconfie.');
+  if (fin === 4 || fin === 5) avisos.push('Nota de devolução/crédito: reduz o que se deve ao fornecedor; não gera boleto.');
+  if (fin === 2 || fin === 6) avisos.push('Nota complementar/de débito: cobra um valor a mais sobre outra nota e pode vir com boleto próprio.');
+  const somaParcelas = duplicatas.reduce((a, d) => a + d.valor, 0);
+  if (duplicatas.length && Math.abs(somaParcelas - valorNf) > 0.05 && !(valorComTributos !== null && Math.abs(somaParcelas - valorComTributos) <= 0.05)) {
+    avisos.push(`As parcelas da nota somam ${r2(somaParcelas).toFixed(2)} e o total da nota é ${valorNf.toFixed(2)}. Confira antes de pagar.`);
+  }
+  if (valorComTributos !== null && Math.abs(valorComTributos - valorNf) > 0.05) {
+    avisos.push(`A nota traz um valor com tributos por fora (${valorComTributos.toFixed(2)}) diferente do total (${valorNf.toFixed(2)}). O boleto pode vir por qualquer um dos dois.`);
+  }
 
   return {
     tipo: 'nota',
@@ -113,6 +136,8 @@ export function lerXmlNfe(xml) {
     natureza: texto(ide.natOp),
     finalidade: FINALIDADE[Number(ide.finNFe)] ?? 'normal',
     valor_total: r2(valorNf),
+    valor_com_tributos: valorComTributos !== null && Math.abs(valorComTributos - valorNf) > 0.05 ? r2(valorComTributos) : null,
+    situacao,
     valor_produtos: num(total.vProd),
     valor_frete: num(total.vFrete),
     valor_desconto: num(total.vDesc),
@@ -122,7 +147,7 @@ export function lerXmlNfe(xml) {
     cnpj_destinatario: normalizarCnpj(dest.CNPJ ?? dest.CPF) || null,
     nome_destinatario: texto(dest.xNome),
     info_compl: texto(inf.infAdic?.infCpl),
-    protocolo_status: prot ? String(prot.cStat) : null,
+    protocolo_status: cstat,
     itens,
     duplicatas,
     avisos,

@@ -58,10 +58,13 @@ function inserirNota(db, n) {
   let notaId;
   db.transaction(() => {
     notaId = Number(db.prepare(`INSERT INTO notas_compra (fornecedor_id, chave, numero, serie, data_emissao, valor_total, valor_produtos, valor_frete,
-        valor_desconto, cnpj_emitente, nome_emitente, cnpj_destinatario, nome_destinatario, finalidade, protocolo_status, natureza, info_compl, origem, xml_hash, xml_gz)
+        valor_desconto, cnpj_emitente, nome_emitente, cnpj_destinatario, nome_destinatario, finalidade, protocolo_status, natureza, info_compl, origem, xml_hash, xml_gz,
+        valor_com_tributos, situacao)
         VALUES (@fornecedor_id, @chave, @numero, @serie, @data_emissao, @valor_total, @valor_produtos, @valor_frete, @valor_desconto, @cnpj_emitente,
-        @nome_emitente, @cnpj_destinatario, @nome_destinatario, @finalidade, @protocolo_status, @natureza, @info_compl, @origem, @xml_hash, @xml_gz)`).run({
+        @nome_emitente, @cnpj_destinatario, @nome_destinatario, @finalidade, @protocolo_status, @natureza, @info_compl, @origem, @xml_hash, @xml_gz,
+        @valor_com_tributos, @situacao)`).run({
       fornecedor_id: fornecedor.id, chave: n.chave ?? null, numero: n.numero, serie: n.serie ?? '', data_emissao: n.data_emissao,
+      valor_com_tributos: n.valor_com_tributos ?? null, situacao: n.situacao ?? 'ativa',
       valor_total: n.valor_total, valor_produtos: n.valor_produtos ?? null, valor_frete: n.valor_frete ?? null, valor_desconto: n.valor_desconto ?? null,
       cnpj_emitente: n.cnpj_emitente ?? null, nome_emitente: n.nome_emitente ?? null, cnpj_destinatario: n.cnpj_destinatario ?? null,
       nome_destinatario: n.nome_destinatario ?? null, finalidade: n.finalidade ?? 'normal', protocolo_status: n.protocolo_status ?? null,
@@ -91,9 +94,9 @@ function completarNotaManual(db, existente, n) {
   db.transaction(() => {
     db.prepare(`UPDATE notas_compra SET chave = ?, serie = ?, data_emissao = ?, valor_total = ?, valor_produtos = ?, valor_frete = ?, valor_desconto = ?,
         cnpj_emitente = ?, nome_emitente = ?, cnpj_destinatario = ?, nome_destinatario = ?, finalidade = ?, protocolo_status = ?, natureza = ?, info_compl = ?,
-        origem = 'xml', xml_hash = ?, xml_gz = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
+        origem = 'xml', xml_hash = ?, xml_gz = ?, valor_com_tributos = ?, situacao = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
       n.cnpj_emitente ?? null, n.nome_emitente ?? null, n.cnpj_destinatario ?? null, n.nome_destinatario ?? null, n.finalidade ?? 'normal', n.protocolo_status ?? null,
-      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, existente.id);
+      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, n.valor_com_tributos ?? null, n.situacao === 'cancelada' ? 'cancelada' : existente.situacao, existente.id);
     const parcelasLigadas = db.prepare('SELECT COUNT(*) AS c FROM conciliacoes WHERE nota_id = ? AND duplicata_id IS NOT NULL').get(existente.id).c;
     if (!parcelasLigadas) {
       db.prepare('DELETE FROM nota_duplicatas WHERE nota_id = ?').run(existente.id);
@@ -170,7 +173,7 @@ export function criarNotaManual(db, d) {
 export function notaComSaldo(db, notaId) {
   const n = db.prepare(`SELECT n.id, n.fornecedor_id, n.chave, n.numero, n.serie, n.data_emissao, n.valor_total, n.valor_produtos, n.valor_frete, n.valor_desconto,
       n.cnpj_emitente, n.nome_emitente, n.cnpj_destinatario, n.nome_destinatario, n.finalidade, n.situacao, n.protocolo_status, n.natureza, n.info_compl,
-      n.origem, n.xml_hash, n.obs, n.criado_em, f.nome AS fornecedor FROM notas_compra n JOIN fornecedores f ON f.id = n.fornecedor_id WHERE n.id = ?`).get(notaId);
+      n.valor_com_tributos, n.origem, n.xml_hash, n.obs, n.criado_em, f.nome AS fornecedor FROM notas_compra n JOIN fornecedores f ON f.id = n.fornecedor_id WHERE n.id = ?`).get(notaId);
   if (!n) return null;
   const conciliado = db.prepare('SELECT COALESCE(SUM(valor), 0) AS t FROM conciliacoes WHERE nota_id = ?').get(notaId).t;
   return { ...n, conciliado: r2(conciliado), saldo: r2(n.valor_total - conciliado) };
@@ -256,11 +259,13 @@ export function sugerirAlocacoes(db, notaId) {
   for (const it of itens) {
     const rest = restanteItem(db, it.id);
     if (rest.quantidade <= EPS) continue;
-    const ped = String(it.x_ped ?? '').replace(/\D/g, '').replace(/^0+/, '');
+    // xPed costuma vir como "OS1043" ou "1043/2": testa cada grupo de números contra as OS e só aceita se exatamente uma bater
+    const grupos = (String(it.x_ped ?? '').match(/\d+/g) ?? []).map((g) => g.replace(/^0+/, '')).filter((g) => g.length >= 3);
     let achado = null;
-    if (ped.length >= 3) {
-      const v = vendas.find((x) => String(x.numero ?? '').replace(/\D/g, '').replace(/^0+/, '') === ped);
-      if (v) achado = { venda: v, motivo: `pedido ${it.x_ped} = OS ${v.numero}` };
+    if (grupos.length) {
+      const bate = vendas.filter((x) => grupos.includes(String(x.numero ?? '').replace(/\D/g, '').replace(/^0+/, '')));
+      if (bate.length === 1) achado = { venda: bate[0], motivo: `pedido ${it.x_ped} = OS ${bate[0].numero}` };
+      else if (bate.length > 1) achado = { venda: bate[0], motivo: `pedido ${it.x_ped} bate com mais de uma OS`, ambigua: true };
     }
     if (!achado && placas.length) {
       const cand = vendas.filter((x) => x.placa && placas.includes(x.placa));

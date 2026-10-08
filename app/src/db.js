@@ -66,6 +66,7 @@ export function abrirBanco(caminho = process.env.DB_PATH || join(aqui, '..', 'da
 function migrar(db) {
   const colunas = (tabela) => db.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
   if (!colunas('notas_compra').includes('xml_gz')) db.exec('ALTER TABLE notas_compra ADD COLUMN xml_gz BLOB');
+  if (!colunas('notas_compra').includes('valor_com_tributos')) db.exec('ALTER TABLE notas_compra ADD COLUMN valor_com_tributos REAL');
   if (!colunas('vendas').includes('custo_pecas_auto')) {
     db.exec('ALTER TABLE vendas ADD COLUMN custo_pecas_auto INTEGER NOT NULL DEFAULT 0');   // 1 = custo veio das notas
   }
