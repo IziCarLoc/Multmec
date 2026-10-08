@@ -103,6 +103,7 @@ export function conciliar(db, boletoId, itens, origem = 'manual') {
   if (!b) throw new ErroValidacao('Boleto não encontrado.');
   if (b.situacao === 'cancelado' || b.situacao === 'contestado') throw new ErroValidacao(`Este boleto está ${b.situacao}. Reabra-o antes de ligar a uma nota.`);
   if (!Array.isArray(itens) || !itens.length) throw new ErroValidacao('Escolha ao menos uma nota.');
+  if (itens.some((i) => !i || typeof i !== 'object')) throw new ErroValidacao('Item de ligação inválido.');
   const tol = 0.05;
   const notasDosItens = new Set(itens.map((i) => Number(i.nota_id)));
   const outras = db.prepare('SELECT nota_id, SUM(valor) AS v FROM conciliacoes WHERE boleto_id = ? GROUP BY nota_id').all(boletoId)
