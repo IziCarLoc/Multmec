@@ -43,6 +43,17 @@ test('POST que não é JSON é recusado (proteção contra formulário de outro 
   } finally { fechar(); }
 });
 
+test('DELETE sem corpo funciona com o cabeçalho JSON e é recusado sem ele', async () => {
+  const { chamar, fechar } = await subir();
+  try {
+    await chamar('POST', '/api/login', { senha: 'senha-de-teste-123' });
+    const c = await chamar('POST', '/api/clientes', { nome: 'x1' });
+    assert.equal((await chamar('DELETE', `/api/saidas/999`, undefined, { 'content-type': 'application/json' })).status, 200);
+    assert.equal((await chamar('DELETE', `/api/saidas/999`)).status, 415);
+    assert.ok(c.json.id);
+  } finally { fechar(); }
+});
+
 test('login erra 5 vezes e passa a responder 429', async () => {
   const { chamar, fechar } = await subir();
   try {

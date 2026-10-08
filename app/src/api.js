@@ -3,7 +3,11 @@ import { lerConfig, gravarConfig } from './db.js';
 import * as F from './finance.js';
 import { importarServicos, lerPlanilhaServicos } from './importar.js';
 import { hoje as hojeBR, mesDe, normalizarPlaca, r2, somarMeses, somarDias } from './util.js';
+import { normalizarCnpj, cnpjValido } from './documentos.js';
 import * as V from './validar.js';
+import { criarApiCompras, ErroBloqueio } from './api_compras.js';
+import { pagarBoleto } from './boletos.js';
+import { ocorrencias as ocorrenciasCompras, resumoAuditoria } from './auditoria.js';
 
 const SITUACOES = ['orcamento', 'aberta', 'concluida', 'cancelada'];
 const TIPOS_CLIENTE = ['avulso', 'frota', 'locadora', 'revenda'];
@@ -40,6 +44,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       alertas: F.alertas(db, h, cfg),
       carteira: F.carteira(db, h, cfg).slice(0, 5),
       serie: F.serieMensal(db, ym, 6),
+      compras: resumoAuditoria(ocorrenciasCompras(db, h, cfg)),
     });
   }));
 
@@ -75,6 +80,24 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       if (!Array.isArray(b.feriados)) throw new V.ErroValidacao('Feriados deve ser uma lista de datas.');
       novo.feriados = b.feriados.map((d) => V.data(d, { campo: 'Feriado' }));
     }
+    if ('cnpjOficina' in b) {
+      const c = normalizarCnpj(b.cnpjOficina);
+      if (c && !cnpjValido(c)) throw new V.ErroValidacao('O CNPJ da oficina não passa na validação (confira os números).');
+      novo.cnpjOficina = c;
+    }
+    if ('auditoriaDesde' in b) novo.auditoriaDesde = V.data(b.auditoriaDesde, { campo: 'A data inicial da auditoria', obrigatorio: false }) || '';
+    if ('toleranciaValor' in b) {
+      const n = Number(b.toleranciaValor);
+      if (!(n >= 0 && n <= 5)) throw new V.ErroValidacao('A tolerância de valor deve ficar entre 0 e 5 reais.');
+      novo.toleranciaValor = n;
+    }
+    if ('variacaoPrecoPct' in b) {
+      const n = Number(b.variacaoPrecoPct);
+      if (!(n > 0 && n < 5)) throw new V.ErroValidacao('A variação de preço deve ficar entre 0 e 5 (ex.: 0.15 = 15%).');
+      novo.variacaoPrecoPct = n;
+    }
+    if ('diasNotaSemDestino' in b) novo.diasNotaSemDestino = V.inteiro(b.diasNotaSemDestino, { campo: 'os dias para dar destino às peças', min: 0, max: 365, padrao: 7 });
+    if ('diasNotaSemBoleto' in b) novo.diasNotaSemBoleto = V.inteiro(b.diasNotaSemBoleto, { campo: 'os dias de antecedência do boleto', min: 0, max: 60, padrao: 5 });
     if ('saldoCaixaInicial' in b) novo.saldoCaixaInicial = V.dinheiro(b.saldoCaixaInicial, { campo: 'o saldo inicial', minimo: -10_000_000 });
     if ('saldoCaixaInicialData' in b) novo.saldoCaixaInicialData = V.data(b.saldoCaixaInicialData, { campo: 'A data do saldo', obrigatorio: false }) || '';
     gravarConfig(db, novo);
@@ -199,7 +222,14 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   api.get('/vendas/:id', wrap((req, res) => {
     const v = db.prepare(`${SELECT_VENDA} WHERE v.id = ?`).get(V.idDe(req.params.id));
     if (!v) return res.status(404).json({ erro: 'OS não encontrada.' });
-    res.json({ ...decorar(v), recebimentos: db.prepare('SELECT * FROM recebimentos WHERE venda_id = ? ORDER BY data').all(v.id) });
+    const pecas = db.prepare(`SELECT a.id, a.valor, a.quantidade, i.descricao, n.numero AS nota, n.id AS nota_id, n.valor_total AS nota_total, f.nome AS fornecedor,
+        COALESCE((SELECT SUM(c.valor) FROM conciliacoes c WHERE c.nota_id = n.id), 0) AS ligado,
+        (SELECT COUNT(*) FROM conciliacoes c JOIN boletos b ON b.id = c.boleto_id WHERE c.nota_id = n.id AND b.situacao = 'aberto') AS boletos_abertos,
+        (SELECT COUNT(*) FROM conciliacoes c JOIN boletos b ON b.id = c.boleto_id WHERE c.nota_id = n.id AND b.situacao = 'pago') AS boletos_pagos
+        FROM alocacoes a JOIN nota_itens i ON i.id = a.item_id JOIN notas_compra n ON n.id = i.nota_id JOIN fornecedores f ON f.id = n.fornecedor_id
+        WHERE a.venda_id = ? AND a.destino = 'os' ORDER BY a.id`).all(v.id)
+      .map((p) => ({ ...p, situacao_boleto: p.ligado <= 0.04 ? 'sem boleto' : (p.boletos_abertos ? 'boleto em aberto' : (p.ligado >= p.nota_total - 0.05 ? 'boleto pago' : 'boleto parcial')) }));
+    res.json({ ...decorar(v), recebimentos: db.prepare('SELECT * FROM recebimentos WHERE venda_id = ? ORDER BY data').all(v.id), pecas_notas: pecas, custo_notas: r2(pecas.reduce((a, p) => a + p.valor, 0)) });
   }));
 
   function vendaDe(b, atual = {}) {
@@ -314,7 +344,9 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     res.json({ ok: true });
   }));
   api.delete('/saidas/:id', wrap((req, res) => {
-    db.prepare('DELETE FROM saidas WHERE id = ?').run(V.idDe(req.params.id));
+    const id = V.idDe(req.params.id);
+    if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id)) throw new V.ErroValidacao('Esta conta veio de um boleto. Cancele o boleto em Compras.');
+    db.prepare('DELETE FROM saidas WHERE id = ?').run(id);
     res.json({ ok: true });
   }));
   api.post('/saidas/:id/pagar', wrap((req, res) => {
@@ -322,8 +354,22 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const s = db.prepare('SELECT * FROM saidas WHERE id = ?').get(id);
     if (!s) return res.status(404).json({ erro: 'Conta não encontrada.' });
     const desfazer = req.body?.desfazer === true;
-    if (desfazer) db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(id);
-    else db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = ? WHERE id = ?').run(V.data(req.body?.data || hoje(), { campo: 'A data' }), V.dinheiro(req.body?.valor ?? s.valor, { campo: 'o valor pago', minimo: 0.01 }), id);
+    const boleto = db.prepare('SELECT id, situacao FROM boletos WHERE saida_id = ?').get(id);
+    if (boleto && !desfazer) {
+      // conta que nasceu de um boleto passa pela conferência de compras (trava de pagamento)
+      res.json(pagarBoleto(db, boleto.id, {
+        data: req.body?.data ? V.data(req.body.data, { campo: 'A data' }) : null,
+        valor: req.body?.valor ? V.dinheiro(req.body.valor, { campo: 'o valor pago', minimo: 0.01 }) : null,
+        aprovar: req.body?.aprovar === true, motivo: req.body?.motivo,
+      }, hoje()));
+      return;
+    }
+    if (desfazer) {
+      db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(id);
+      if (boleto && boleto.situacao === 'pago') db.prepare("UPDATE boletos SET situacao = 'aberto' WHERE id = ?").run(boleto.id);
+    } else {
+      db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = ? WHERE id = ?').run(V.data(req.body?.data || hoje(), { campo: 'A data' }), V.dinheiro(req.body?.valor ?? s.valor, { campo: 'o valor pago', minimo: 0.01 }), id);
+    }
     res.json({ ok: true });
   }));
 
@@ -393,11 +439,15 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     res.type('text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="vendas.csv"').send('﻿' + [cab.join(','), ...corpo].join('\n'));
   }));
 
+  // ------------------------------------------------------------ compras (notas, boletos, auditoria)
+  api.use('/compras', criarApiCompras(db, { agora }));
+
   // ------------------------------------------------------------ erros
   api.use((req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
   // eslint-disable-next-line no-unused-vars
   api.use((err, req, res, next) => {
-    if (err instanceof V.ErroValidacao) return res.status(400).json({ erro: err.message });
+    if (err instanceof ErroBloqueio) return res.status(409).json({ erro: err.message, ocorrencias: err.ocorrencias });
+    if (err instanceof V.ErroValidacao) return res.status(400).json({ erro: err.message, ...(err.boleto_id ? { boleto_id: err.boleto_id } : {}) });
     if (err instanceof Error && /Valor do pagamento|Cliente não encontrado/.test(err.message)) return res.status(400).json({ erro: err.message });
     console.error(err);
     res.status(500).json({ erro: 'Erro interno. Tente de novo.' });

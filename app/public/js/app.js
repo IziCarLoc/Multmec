@@ -6,11 +6,13 @@ import { contas } from './views/contas.js';
 import { clientes } from './views/clientes.js';
 import { metas } from './views/metas.js';
 import { relatorios } from './views/relatorios.js';
+import { compras } from './views/compras.js';
 import { importar } from './views/importar.js';
 
 const ROTAS = {
   '/': { titulo: 'Painel', icone: '◔', vista: painel },
   '/vendas': { titulo: 'Vendas', icone: '≣', vista: vendas },
+  '/compras': { titulo: 'Compras', icone: '⚖', vista: compras },
   '/contas': { titulo: 'Contas', icone: '▤', vista: contas },
   '/clientes': { titulo: 'A prazo', icone: '◷', vista: clientes },
   '/metas': { titulo: 'Metas', icone: '◎', vista: metas, mais: true },
@@ -58,9 +60,9 @@ function esqueleto() {
     h('header', { class: 'topo' }, h('div', { class: 'marca' }, h('span', { class: 'logo pequeno' }, 'M'), h('strong', null, 'Multmec')),
       h('nav', { class: 'menu-desktop', 'aria-label': 'Principal' }, [...principais, ...mais].map(([c, r]) => link(c, r))),
       h('button', { class: 'sair', onclick: async () => { await POST('/logout', {}); location.hash = '#/'; telaLogin(); } }, 'Sair')),
-    h('div', { class: 'mais-mobile' }, mais.slice(1).map(([c, r]) => h('a', { href: `#${c}`, 'data-rota': c }, r.titulo))),
+    h('div', { class: 'mais-mobile' }, mais.map(([c, r]) => h('a', { href: `#${c}`, 'data-rota': c }, r.titulo))),
     h('main', { id: 'conteudo' }),
-    h('nav', { class: 'menu-mobile', 'aria-label': 'Principal' }, [...principais, ['/metas', ROTAS['/metas']]].map(([c, r]) => link(c, r))));
+    h('nav', { class: 'menu-mobile', 'aria-label': 'Principal' }, principais.map(([c, r]) => link(c, r))));
 }
 
 let ouvindo = false;

@@ -25,9 +25,10 @@ export function criarApp(db, { senha, segredo, agora, confiarProxy = false } = {
   app.get('/saude', (req, res) => res.json({ ok: true }));
   app.use(express.static(join(aqui, '..', 'public'), { index: 'index.html', maxAge: 0 }));
 
-  // A API só aceita JSON: formulário de outro site não consegue fazer POST em nome de quem está logado.
+  // Pedidos que alteram dados só valem com Content-Type: application/json (mesmo sem corpo):
+  // um formulário de outro site não consegue enviar esse cabeçalho.
   app.use('/api', (req, res, next) => {
-    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) && !req.is('application/json')) {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) && !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
       return res.status(415).json({ erro: 'Use application/json.' });
     }
     next();

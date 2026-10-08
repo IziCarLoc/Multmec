@@ -209,3 +209,24 @@ details summary { cursor: pointer; font-weight: 700; }
   .toast { bottom: 24px; }
   .resumo-contas { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* compras */
+.ocorrencia { border: 1px solid var(--linha); border-left-width: 4px; border-radius: 10px; padding: 10px 12px; background: var(--superficie); }
+.ocorrencia.alta { border-left-color: var(--ruim); background: var(--critico-fundo); }
+.ocorrencia.media { border-left-color: var(--aviso); }
+.ocorrencia.baixa { border-left-color: var(--azul); }
+.ocorrencia p { margin: 6px 0; font-size: 0.9rem; }
+.ocorrencia-topo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ocorrencia-topo .valor { margin-left: auto; font-weight: 700; }
+.abas-mini { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; }
+.abas-mini button { border: 1px solid var(--linha); background: var(--superficie); border-radius: 99px; padding: 5px 12px; white-space: nowrap; font-size: 0.86rem; min-height: 34px; }
+.abas-mini button.ativo { background: var(--primaria); color: var(--primaria-tinta); border-color: var(--primaria); }
+.item-nota { border-top: 1px solid var(--linha); padding: 8px 0; }
+.item-nota-topo { display: flex; justify-content: space-between; gap: 8px; }
+.aloc { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.86rem; color: var(--tinta2); padding: 2px 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.aviso-texto { color: var(--aviso); font-size: 0.88rem; }
+textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--linha); background: var(--superficie); width: 100%; font: inherit; color: inherit; }
+.botoes-topo > input[type=search] { flex: 1; min-width: 160px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--linha); background: var(--superficie); }
+[hidden] { display: none !important; }
+.abas-mini { flex-wrap: wrap; }

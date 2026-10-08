@@ -59,6 +59,18 @@ function blocoCascata(p) {
       h('span', null, ` · para retirar ${brl0(eq.retirada)}: faturar ${brl0(eq.paraRetirada)}`)) : h('p', { class: 'dica' }, 'Cadastre os custos fixos em Contas > Modelos fixos para calcular o ponto de equilíbrio.'));
 }
 
+function blocoCompras(p) {
+  const c = p.compras;
+  if (!c) return null;
+  const tudoCerto = c.alta === 0 && c.media === 0;
+  return cartao('Conferência de compras',
+    tudoCerto ? h('p', { class: 'bom' }, 'Nenhuma ocorrência aberta nas notas e boletos.') : h('div', { class: 'linhas' },
+      h('div', null, h('span', null, 'Graves (boletos/notas suspeitos)'), h('b', { class: c.alta ? 'ruim' : 'bom' }, String(c.alta))),
+      h('div', null, h('span', null, 'Para conferir'), h('b', null, String(c.media))),
+      c.valorEmRisco ? h('div', null, h('span', null, 'Valor em risco'), h('b', { class: 'ruim' }, brl0(c.valorEmRisco))) : null),
+    h('a', { class: 'botao', href: '#/compras' }, 'Abrir conferência'));
+}
+
 function blocoCaixa(p) {
   const c = p.caixa;
   if (!c.configurado) {
@@ -111,5 +123,5 @@ export async function painel(el, estado) {
   const grafico = cartao('Faturamento nos últimos 6 meses', barrasMensais(serie, { meta: p.config.metaFaturamento }));
   montar(el, 
     seletor, alertas,
-    h('div', { class: 'grade' }, blocoMeta(p), blocoCascata(p), blocoCaixa(p), blocoAgenda(p), blocoCarteira(p), grafico));
+    h('div', { class: 'grade' }, blocoMeta(p), blocoCascata(p), blocoCompras(p), blocoCaixa(p), blocoAgenda(p), blocoCarteira(p), grafico));
 }

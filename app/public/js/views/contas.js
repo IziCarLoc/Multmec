@@ -1,5 +1,6 @@
 import { h, brl, brl0, dataBR, dataCurta, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar } from '../ui.js';
 import { GET, POST, PUT, DEL } from '../api.js';
+import { pagarComTrava } from './compras_modais.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const num = (v) => Number(String(v).replace(/\./g, '').replace(',', '.'));
@@ -60,7 +61,7 @@ export async function contas(el, estado) {
       h('button', { class: 'linha-conta-info', onclick: () => formConta(s, recarregar) }, h('b', null, s.descricao), h('small', null, `${dataCurta(s.vencimento)} · ${s.categoria}${s.fornecedor ? ' · ' + s.fornecedor : ''}`)),
       h('div', { class: 'acoes' }, h('b', null, brl(s.valor)),
         s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: async () => { await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); } }, 'Desfazer')
-          : h('button', { class: 'pequeno primario', onclick: async () => { await POST(`/saidas/${s.id}/pagar`, {}); toast('Pago.'); recarregar(); } }, 'Paguei'))))) : null;
+          : h('button', { class: 'pequeno primario', onclick: () => pagarComTrava((extra) => POST(`/saidas/${s.id}/pagar`, extra), recarregar) }, 'Paguei'))))) : null;
   const recarregar = () => contas(el, estado);
   montar(el, 
     h('div', { class: 'seletor-mes' },

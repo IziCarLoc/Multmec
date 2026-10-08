@@ -21,6 +21,13 @@ export const CONFIG_PADRAO = {
   dias_trava: '15',                  // atraso máximo antes de travar cliente a prazo
   pct_aviso_limite: '0.8',
   margem_contribuicao_pct: '',       // vazio = calcular dos últimos meses
+  // auditoria de compras
+  cnpj_oficina: '',                  // CNPJ da oficina: confere destinatário da nota e pagador do boleto
+  auditoria_desde: '',               // OS anteriores a esta data não geram "OS sem nota" (vazio = 1º dia do mês atual)
+  tolerancia_valor: '0.05',          // diferença aceita entre boleto e nota (centavos de arredondamento)
+  variacao_preco_pct: '0.15',        // alerta quando o preço unitário passa disso sobre compras anteriores
+  dias_nota_sem_destino: '7',        // dias para dar destino às peças de uma nota
+  dias_nota_sem_boleto: '5',         // dias antes do vencimento da parcela sem boleto correspondente
 };
 
 const CATEGORIAS = [
@@ -46,11 +53,22 @@ export function abrirBanco(caminho = process.env.DB_PATH || join(aqui, '..', 'da
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(readFileSync(join(aqui, 'schema.sql'), 'utf8'));
+  db.exec(readFileSync(join(aqui, 'schema_compras.sql'), 'utf8'));
+  migrar(db);
   const insCfg = db.prepare('INSERT OR IGNORE INTO config (chave, valor) VALUES (?, ?)');
   for (const [k, v] of Object.entries(CONFIG_PADRAO)) insCfg.run(k, v);
   const insCat = db.prepare('INSERT OR IGNORE INTO categorias (nome, grupo, ordem) VALUES (?, ?, ?)');
   for (const c of CATEGORIAS) insCat.run(...c);
   return db;
+}
+
+/** Colunas novas em tabelas que já existiam (CREATE TABLE IF NOT EXISTS não altera tabela antiga). */
+function migrar(db) {
+  const colunas = (tabela) => db.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
+  if (!colunas('notas_compra').includes('xml_gz')) db.exec('ALTER TABLE notas_compra ADD COLUMN xml_gz BLOB');
+  if (!colunas('vendas').includes('custo_pecas_auto')) {
+    db.exec('ALTER TABLE vendas ADD COLUMN custo_pecas_auto INTEGER NOT NULL DEFAULT 0');   // 1 = custo veio das notas
+  }
 }
 
 export function lerConfig(db) {
@@ -69,6 +87,12 @@ export function lerConfig(db) {
     diasTrava: Number(cfg.dias_trava),
     pctAvisoLimite: Number(cfg.pct_aviso_limite),
     margemContribuicaoPct: cfg.margem_contribuicao_pct === '' ? null : Number(cfg.margem_contribuicao_pct),
+    cnpjOficina: cfg.cnpj_oficina || '',
+    auditoriaDesde: cfg.auditoria_desde || '',
+    toleranciaValor: Number(cfg.tolerancia_valor),
+    variacaoPrecoPct: Number(cfg.variacao_preco_pct),
+    diasNotaSemDestino: Number(cfg.dias_nota_sem_destino),
+    diasNotaSemBoleto: Number(cfg.dias_nota_sem_boleto),
   };
 }
 
@@ -78,6 +102,8 @@ export function gravarConfig(db, parcial) {
     reservaPct: 'reserva_pct', retiradaSociosMeta: 'retirada_socios_meta', sabadoConta: 'sabado_conta',
     feriados: 'feriados', saldoCaixaInicial: 'saldo_caixa_inicial', saldoCaixaInicialData: 'saldo_caixa_inicial_data',
     diasTrava: 'dias_trava', pctAvisoLimite: 'pct_aviso_limite', margemContribuicaoPct: 'margem_contribuicao_pct',
+    cnpjOficina: 'cnpj_oficina', auditoriaDesde: 'auditoria_desde', toleranciaValor: 'tolerancia_valor',
+    variacaoPrecoPct: 'variacao_preco_pct', diasNotaSemDestino: 'dias_nota_sem_destino', diasNotaSemBoleto: 'dias_nota_sem_boleto',
   };
   const up = db.prepare('INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor');
   db.transaction(() => {

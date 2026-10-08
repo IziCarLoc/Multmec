@@ -84,19 +84,50 @@ export async function formVenda(venda, aoSalvar) {
   });
 }
 
-function detalhe(v, aoMudar) {
+async function detalhe(v0, aoMudar) {
+  const v = await GET(`/vendas/${v0.id}`);
   modal(`OS ${v.numero || v.id}`, (fechar) => {
     const linhas = [
       ['Data', dataBR(v.data)], ['Cliente', v.cliente || '—'], ['Veículo', `${v.veiculo || ''} ${v.placa || ''}`.trim() || '—'], ['Mecânico', v.mecanico || '—'],
       ['Total', brl(v.valor_total)], ['Mão de obra', brl(v.valor_mao_obra)], ['Custo das peças', v.custo_pecas === null ? 'não informado' : brl(v.custo_pecas)],
       ['Frete + insumos', brl(v.custo_frete + v.custo_insumos)], ['Lucro bruto', brl(v.lucro_bruto)], ['Recebido', brl(v.recebido)], ['Em aberto', brl(v.aberto)],
     ];
+    const divergente = v.pecas_notas?.length && v.custo_pecas !== null && Math.abs(v.custo_pecas - v.custo_notas) > Math.max(5, v.custo_pecas * 0.05);
+    const mudou = () => { fechar(); aoMudar(); detalhe(v0, aoMudar); };
     return h('div', null,
       h('dl', { class: 'detalhe' }, linhas.map(([k, val]) => [h('dt', null, k), h('dd', null, val)])),
+      v.situacao === 'concluida' || v.situacao === 'aberta' ? [
+        h('h3', null, `Peças com nota fiscal (${brl(v.custo_notas)})`),
+        v.pecas_notas?.length ? v.pecas_notas.map((p) => h('div', { class: 'aloc' }, h('span', null, `${p.descricao} · nota ${p.nota} · ${p.fornecedor} · `, h('b', { class: p.situacao_boleto === 'sem boleto' ? 'ruim' : '' }, p.situacao_boleto)), h('b', null, brl(p.valor)))) : h('p', { class: 'dica' }, 'Nenhuma peça desta OS está ligada a uma nota de compra.'),
+        divergente ? h('p', { class: 'ruim' }, `O custo digitado (${brl(v.custo_pecas)}) é diferente do que as notas somam (${brl(v.custo_notas)}).`) : null,
+        h('div', { class: 'botoes' },
+          divergente ? h('button', { class: 'pequeno', onclick: async () => { await POST(`/compras/os/${v.id}/usar-custo-das-notas`, {}); toast('Custo atualizado pelas notas.'); mudou(); } }, 'Usar o custo das notas') : null,
+          h('button', { class: 'pequeno', onclick: () => escolherItemLivre(v, mudou) }, 'Ligar peça de uma nota…'))] : null,
       h('div', { class: 'botoes' },
         v.situacao === 'orcamento' ? h('button', { class: 'primario', onclick: async () => { await POST(`/vendas/${v.id}/aprovar`, {}); toast('Orçamento aprovado: virou OS concluída.'); fechar(); aoMudar(); } }, 'Aprovar orçamento') : null,
         v.aberto > 0.004 ? h('button', { class: 'primario', onclick: async () => { await POST(`/vendas/${v.id}/receber`, {}); toast('Recebimento registrado.'); fechar(); aoMudar(); } }, `Recebi ${brl(v.aberto)} hoje`) : null,
         v.situacao !== 'saldo' ? h('button', { onclick: () => { fechar(); formVenda(v, aoMudar); } }, 'Editar') : null));
+  });
+}
+
+export async function escolherItemLivre(v, aoMudar) {
+  const itens = await GET('/compras/itens-livres');
+  modal('Qual peça foi usada nesta OS?', (fechar) => h('div', { class: 'lista' }, itens.length ? itens.map((i) => h('button', { class: 'linha-os', onclick: () => { fechar(); modalAplicarEmOsDireto(i, v, aoMudar); } },
+    h('div', null, h('b', null, i.descricao)), h('div', { class: 'sub' }, `nota ${i.nota} · ${i.fornecedor} · ${dataBR(i.data_emissao)} · ${brl(i.restante_valor)}`))) : [h('p', { class: 'vazio' }, 'Nenhuma peça de nota está esperando destino. Importe ou lance a nota em Compras.')]));
+}
+
+function modalAplicarEmOsDireto(item, v, aoMudar) {
+  modal(`Aplicar: ${item.descricao}`, (fechar) => {
+    const qtd = entrada('quantidade', item.restante_qtd, { inputmode: 'decimal' });
+    const f = h('form', { class: 'formulario' },
+      h('p', { class: 'dica' }, `Em ${item.restante_qtd} unidade(s) ainda sem destino (${brl(item.restante_valor)}). Se a peça foi usada em mais de um carro, diminua a quantidade.`),
+      campo(`Quantidade usada na OS ${v.numero ?? v.id}`, qtd),
+      h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Aplicar nesta OS')));
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await POST(`/compras/itens/${item.id}/alocar`, { destino: 'os', vendaId: v.id, quantidade: num(qtd.value) }); toast('Peça ligada à OS.'); fechar(); aoMudar(); } catch (err) { toast(err.message, true); }
+    });
+    return f;
   });
 }
 

@@ -91,3 +91,8 @@ export function lerForm(form) {
 export function selo(texto, tipo = 'neutro') { return h('span', { class: `selo ${tipo}` }, texto); }
 export function vazio(texto) { return h('p', { class: 'vazio' }, texto); }
 export function carregando() { return h('p', { class: 'vazio' }, 'Carregando…'); }
+
+export function cnpjBR(c) {
+  const t = String(c ?? '');
+  return t.length === 14 ? `${t.slice(0, 2)}.${t.slice(2, 5)}.${t.slice(5, 8)}/${t.slice(8, 12)}-${t.slice(12)}` : t;
+}

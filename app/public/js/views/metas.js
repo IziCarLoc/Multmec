@@ -26,6 +26,14 @@ export async function metas(el) {
       campo('Saldo do banco/caixa em (data)', entrada('saldoCaixaInicialData', cfg.saldoCaixaInicialData, { type: 'date' })),
       campo('Saldo nessa data (R$)', entrada('saldoCaixaInicial', cfg.saldoCaixaInicial, { inputmode: 'decimal' }))),
     campo('Feriados (datas AAAA-MM-DD separadas por vírgula)', entrada('feriados', cfg.feriados.join(', '))),
+    h('h3', null, 'Conferência de compras'),
+    campo('CNPJ da oficina', entrada('cnpjOficina', cfg.cnpjOficina, { placeholder: '00.000.000/0000-00' }), 'Para conferir se a nota e o boleto estão no nome da oficina. Está no cabeçalho das OS.'),
+    h('div', { class: 'duas' },
+      campo('Conferir OS sem nota a partir de', entrada('auditoriaDesde', cfg.auditoriaDesde, { type: 'date' }), 'vazio = só o mês atual'),
+      campo('Dias para dar destino às peças', entrada('diasNotaSemDestino', cfg.diasNotaSemDestino, { type: 'number', min: 0 }))),
+    h('div', { class: 'duas' },
+      campo('Diferença aceita no valor (R$)', entrada('toleranciaValor', cfg.toleranciaValor, { inputmode: 'decimal' }), 'arredondamento de centavos'),
+      campo('Alerta de preço acima de (%)', entrada('variacaoPrecoPct', (cfg.variacaoPrecoPct * 100).toString().replace('.', ','), { inputmode: 'decimal' }), 'sobre as últimas compras do mesmo item')),
     h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -37,6 +45,8 @@ export async function metas(el) {
         sabadoConta: Number(d.sabadoConta), diasTrava: Number(d.diasTrava),
         saldoCaixaInicialData: d.saldoCaixaInicialData, saldoCaixaInicial: num(d.saldoCaixaInicial) ?? 0,
         feriados: d.feriados.split(',').map((x) => x.trim()).filter(Boolean),
+        cnpjOficina: d.cnpjOficina, auditoriaDesde: d.auditoriaDesde, diasNotaSemDestino: Number(d.diasNotaSemDestino),
+        toleranciaValor: Number(String(d.toleranciaValor).replace(',', '.')), variacaoPrecoPct: perc(d.variacaoPrecoPct),
       });
       toast('Configuração salva.'); metas(el);
     } catch (err) { toast(err.message, true); }
