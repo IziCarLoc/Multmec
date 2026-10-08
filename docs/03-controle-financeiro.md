@@ -98,7 +98,7 @@ Por que isso resolve o problema "só pago funcionário e boleto":
 - Cliente a prazo (locadora, empresas): tem **prazo, limite e conta corrente**. Quando passa do limite ou de 15 dias de atraso, o sistema mostra **TRAVADO** e a regra passa a ser pagamento antecipado.
 - Mais detalhes e a política sugerida para a locadora em `04-locadora.md`.
 
-## 6. Sete indicadores (o painel mostra os cinco primeiros)
+## 6. Oito indicadores (o painel mostra os cinco primeiros e o de compras)
 
 | # | Indicador | Meta / alerta | Onde |
 |---|---|---|---|
@@ -109,6 +109,7 @@ Por que isso resolve o problema "só pago funcionário e boleto":
 | 5 | OS sem custo de peça | 0 | Painel (alerta) |
 | 6 | Ticket médio e OS abaixo de R$ 300 | ticket sobe; pequenas OS caem | Relatórios |
 | 7 | Retorno em até 7 dias (retrabalho) e aprovação de orçamento | retrabalho < 3% (blog); aprovação > 55% | Relatórios (fase 2) |
+| 8 | Ocorrências **graves** de compras (boleto sem nota, beneficiário diferente, valor a mais) | 0 abertas antes de pagar | Painel e Compras (`09-conciliacao-compras.md`) |
 
 ## 7. Regras fixas (para colar na parede)
 
@@ -120,6 +121,7 @@ Por que isso resolve o problema "só pago funcionário e boleto":
 6. **A oficina não paga conta de outra empresa** (nem da locadora) sem lançamento e prazo de devolução. Se acontecer, é contrato de mútuo (ver `04-locadora.md`).
 7. **Toda venda para a locadora tem nota e preço de tabela**, como qualquer cliente.
 8. Orçamento sempre por escrito, com validade; vale 10 dias (CDC art. 40).
+9. **Boleto de fornecedor só é pago com nota fiscal por trás.** Todo boleto que chega é cadastrado em Compras no mesmo dia; o que aparecer como grave (sem nota, beneficiário ou pagador diferente, valor a mais) não é pago antes de confirmar com o fornecedor por um telefone que a oficina já tinha.
 
 ## 8. Como começar (uma semana)
 

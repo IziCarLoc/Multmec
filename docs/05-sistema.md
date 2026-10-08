@@ -19,6 +19,7 @@
 | **Contas** | A pagar por mês (atrasadas / a pagar / pagas); marcar pago; **modelos fixos** que geram as contas todo mês | **Pronto** |
 | **A prazo** | Locadora e frotas: prazo, limite, faixas de atraso, **trava**, saldo anterior, recebimento (quita o mais antigo), extrato, texto de cobrança | **Pronto** |
 | **Metas** | Meta, retirada dos sócios, % de imposto/maquininha/reserva, feriados, saldo do banco, dias de trava; **simulador** (OS x ticket) | **Pronto** |
+| **Compras** | Conferência de compras: importa o XML das notas, cadastra o boleto pela linha digitável, liga **nota × boleto × peça × OS**, lista as ocorrências de auditoria (boleto sem nota, beneficiário diferente, valor a mais, duplicidade...) e **trava o pagamento** de boleto com problema grave. Detalhes em [`09-conciliacao-compras.md`](09-conciliacao-compras.md) | **Pronto (primeira versão)** |
 | **Relatórios** | Mês a mês, faixas de ticket, acréscimo por faixa de custo, clientes, mecânicos, orçamentos parados; exporta CSV | **Pronto** |
 | **Importar** | Carrega a planilha CONTROLE SERVIÇOS (CSV), com prévia e data de corte | **Pronto** |
 | Usuários e permissões | Um login por pessoa (sócio, atendente, mecânico), com o que cada um vê | Fase 2 |
@@ -34,6 +35,8 @@
 | Painel | Nova OS | Clientes a prazo |
 |---|---|---|
 | ![Painel](img/app_01_painel.png) | ![Nova OS](img/app_03_nova_os.png) | ![A prazo](img/app_04_a_prazo.png) |
+
+Conferência de compras: [Conferência](img/compras_01_conferencia.png) · [Boletos](img/compras_02_boletos.png) · [Detalhe de um boleto](img/compras_03_boleto_detalhe.png) · [Pagamento travado](img/compras_07_pagamento_travado.png).
 
 Outras telas: [Vendas](img/app_02_vendas.png) · [Contas](img/app_05_contas.png) · [Metas e simulador](img/app_06_metas.png). Nessas imagens a locadora aparece **TRAVADA** porque o banco de demonstração tem 18 dias de atraso inventados.
 
@@ -122,7 +125,7 @@ O sistema guarda **nome, placa e valor de clientes**: são dados pessoais.
 
 - **Node.js + Express + SQLite (`better-sqlite3`).** Uma pasta, um processo, um arquivo de banco. Cabe numa hospedagem pequena. Tecnologia comum, fácil de manter.
 - **Front-end sem framework e sem build.** Arquivos estáticos servidos pelo próprio Express. Menos coisa para quebrar e para hospedar. Gráficos em SVG próprios.
-- **Testes** com o executor nativo do Node: `cd app && npm test`. 20 testes cobrindo importação, datas, cascata, termômetro, aging, recebimento FIFO, caixa, autenticação e o fluxo de OS pela API.
+- **Testes** com o executor nativo do Node: `cd app && npm test`. 68 testes cobrindo importação, datas, cascata, termômetro, aging, recebimento FIFO, caixa, autenticação, o fluxo de OS pela API e a conferência de compras (chave da NF-e, CNPJ, linha digitável e fator de vencimento com vetores independentes, leitura do XML, conciliação, ocorrências e trava de pagamento).
 - **Se a hospedagem for só PHP/MySQL** (comum em plano compartilhado), este sistema não roda lá. Teria de ser reescrito ou hospedado em outro lugar (`08-hospedagem.md`, seção "E se a hospedagem for compartilhada"). É uma das perguntas em `07`.
 
 ## 9. Limitações conhecidas do protótipo

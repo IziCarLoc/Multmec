@@ -182,3 +182,22 @@ test('boletos em lote: cadastra os bons, aponta repetido, inválido e o que fico
     assert.equal((await chamar('GET', '/api/compras/resumo')).json.totais.boletos, 2);
   } finally { fechar(); }
 });
+
+test('conta nascida de boleto: valor e vencimento não mudam pela edição de Contas, descrição sim', async () => {
+  const { db, chamar, fechar, logar } = await subir();
+  try {
+    await logar();
+    const b = await chamar('POST', '/api/compras/boletos', { linha: linhaDigitavel({ valor: 321.5, vencimento: '2026-10-20' }), fornecedorNome: 'DISTRIBUIDORA TESTE LTDA' });
+    assert.equal(b.status, 201);
+    const saidaId = db.prepare('SELECT saida_id FROM boletos WHERE id = ?').get(b.json.boleto_id).saida_id;
+    const r1 = await chamar('PUT', `/api/saidas/${saidaId}`, { valor: 10 });
+    assert.equal(r1.status, 400);
+    assert.match(r1.json.erro, /vêm do boleto/);
+    assert.equal((await chamar('PUT', `/api/saidas/${saidaId}`, { vencimento: '2026-12-31' })).status, 400);
+    assert.equal((await chamar('PUT', `/api/saidas/${saidaId}`, { descricao: 'Peças (nota a confirmar)' })).status, 200);
+    const s = db.prepare('SELECT * FROM saidas WHERE id = ?').get(saidaId);
+    assert.equal(s.valor, 321.5);
+    assert.equal(s.vencimento, '2026-10-20');
+    assert.equal(s.descricao, 'Peças (nota a confirmar)');
+  } finally { fechar(); }
+});

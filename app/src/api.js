@@ -340,6 +340,10 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     const atual = db.prepare('SELECT * FROM saidas WHERE id = ?').get(id);
     if (!atual) return res.status(404).json({ erro: 'Conta não encontrada.' });
     const s = saidaDe(req.body || {}, atual);
+    // valor e vencimento de uma conta nascida de boleto são do boleto: mudar aqui desligaria a conferência
+    if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id) && (s.valor !== atual.valor || s.vencimento !== atual.vencimento)) {
+      throw new V.ErroValidacao('Valor e vencimento desta conta vêm do boleto e não podem ser mudados aqui. Se o boleto foi cadastrado errado, cancele-o em Compras e cadastre de novo.');
+    }
     db.prepare('UPDATE saidas SET descricao=@descricao, categoria_id=@categoria_id, fornecedor=@fornecedor, valor=@valor, vencimento=@vencimento, obs=@obs WHERE id=@id').run({ ...s, id });
     res.json({ ok: true });
   }));

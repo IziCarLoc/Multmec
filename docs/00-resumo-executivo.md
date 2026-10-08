@@ -30,13 +30,15 @@
 
 Cenários: **baixo ~R$ 86 mil, base ~R$ 93 mil, alto ~R$ 103 mil**. Sendo honesto: R$ 100 mil é possível, mas só fecha com as OS grandes e a sexta funcionando. As regras de preço (as três primeiras) são as mais seguras.
 
-**Controle financeiro** (`03-controle-financeiro.md`): só dois lançamentos (venda e conta), uma **cascata do mês** (faturamento → custos → imposto → folha → fixos → resultado → reserva → **disponível para os sócios**), quatro contas bancárias com **uma transferência por semana**, 7 indicadores e uma reunião de 30 minutos toda segunda.
+**Controle financeiro** (`03-controle-financeiro.md`): só dois lançamentos (venda e conta), uma **cascata do mês** (faturamento → custos → imposto → folha → fixos → resultado → reserva → **disponível para os sócios**), quatro contas bancárias com **uma transferência por semana**, 8 indicadores e uma reunião de 30 minutos toda segunda.
 
 **Locadora** (`04-locadora.md`): tratar como qualquer frota, com **prazo de 5 dias (pagamento toda quarta), limite de R$ 12 mil, trava com 15 dias de atraso**, desconto só para quem paga em dia, saldo antigo em plano de quitação, nota fiscal e conciliação mensal. Além do caixa, é proteção jurídica: caixa misturado é o que sustenta a "confusão patrimonial" (art. 50 do Código Civil).
 
 ## O sistema (já funciona)
 
-`app/`: painel com a meta e a projeção do mês, cascata do mês, vendas (lançar OS pelo celular), contas a pagar com modelos fixos, clientes a prazo com **trava, extrato e texto de cobrança pronto para WhatsApp**, metas com simulador, relatórios e **importação da sua planilha** (com correção das datas erradas). Segurança de produção, 20 testes e backup do banco. Detalhes e limitações em `05-sistema.md`; como colocar no ar em `08-hospedagem.md`.
+`app/`: painel com a meta e a projeção do mês, cascata do mês, vendas (lançar OS pelo celular), contas a pagar com modelos fixos, clientes a prazo com **trava, extrato e texto de cobrança pronto para WhatsApp**, metas com simulador, relatórios e **importação da sua planilha** (com correção das datas erradas). Segurança de produção, 68 testes e backup do banco. Detalhes e limitações em `05-sistema.md`; como colocar no ar em `08-hospedagem.md`.
+
+**Novo: conferência de compras** (`09-conciliacao-compras.md`). Você importa o XML da nota e cadastra o boleto pela linha digitável; o sistema liga **nota × boleto × peça × OS**, avisa de boleto sem nota, de beneficiário ou pagador diferente, de valor a mais e de duplicidade, e **pede justificativa antes de pagar** boleto com problema grave. Limite honesto: o CNPJ de quem recebe não vai no código de barras, então alguém precisa digitá-lo do papel (ou conferir pelo DDA do banco).
 
 As telas (com dados inventados) estão em `05-sistema.md`. Testei também com a sua planilha real importada, mas esses dados não foram guardados no repositório.
 

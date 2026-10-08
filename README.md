@@ -17,6 +17,7 @@ Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, 
 | [`docs/06-pesquisa.md`](docs/06-pesquisa.md) | Pesquisa com fontes e grau de confiança (benchmarks, tributário, cliente-chave) |
 | [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md) | Perguntas para o dono e o que ficou de fora |
 | [`docs/08-hospedagem.md`](docs/08-hospedagem.md) | Como colocar no ar, backup e segurança |
+| [`docs/09-conciliacao-compras.md`](docs/09-conciliacao-compras.md) | Conferência de compras: nota fiscal × boleto × OS, auditoria e trava de pagamento |
 | [`app/`](app) | O sistema (Node.js + SQLite), com testes |
 | [`analise/`](analise) | Scripts em Python que geram os números e gráficos do diagnóstico |
 
@@ -27,7 +28,7 @@ cd app
 npm install
 npm run demo     # banco de demonstração com dados inventados
 npm start        # http://localhost:3000  (senha de desenvolvimento: multmec)
-npm test         # 20 testes
+npm test         # 68 testes
 ```
 
 Com os dados reais: exporte a aba SERVIÇOS da planilha como CSV e use a tela **Importar** (ou `npm run importar -- servicos.csv --corte AAAA-MM-DD`).
@@ -47,6 +48,6 @@ python analise/gerar_relatorio.py analise/dados/servicos.csv   # grava docs/dado
 
 ## O que foi e o que não foi verificado
 
-- Testado: 20 testes automatizados (`app`), importação conferida contra a análise independente em Python, telas conferidas em celular e desktop com navegador de teste, subida em modo produção (recusa sem senha, cookie `Secure` atrás de proxy, 401 sem login, 415 para formulário).
+- Testado: 68 testes automatizados (`app`), incluindo a leitura de NF-e e de boleto com vetores gerados por programa independente, importação conferida contra a análise independente em Python, telas conferidas em celular e desktop com navegador de teste, subida em modo produção (recusa sem senha, cookie `Secure` atrás de proxy, 401 sem login, 415 para formulário).
 - **Não testado aqui:** build da imagem Docker (o ambiente não tem daemon do Docker). O `Dockerfile` e o `docker-compose.yml` seguem o padrão, mas rode um build antes de contar com eles.
 - Dois links do Drive que você mandou não abriram para a conta conectada; veja [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md).

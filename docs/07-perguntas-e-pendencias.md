@@ -31,6 +31,17 @@
 20. **Material gráfico** (logo, cores, nome fantasia): quando mandar eu aplico no sistema. O protótipo usa um "M" azul provisório.
 21. **Dados de cliente**: posso manter nome e placa no sistema? (Há tratamento de dado pessoal; conversar com o contador/advogado sobre LGPD.)
 
+### Conferência de compras (boletos × notas × OS)
+
+22. **XML das notas:** a Scherer e os outros fornecedores mandam o arquivo `.xml` (e-mail, portal) ou só o PDF? Sem XML a prova da nota fica fraca (`09`, seções 5 e 7).
+23. **Certificado digital A1** da oficina: existe? Com ele o sistema pode baixar sozinho as notas emitidas contra o CNPJ da oficina (fase 2).
+24. **DDA no banco** (lista dos boletos emitidos contra o CNPJ da oficina): está ativo? Dá para exportar? É a melhor fonte para achar boleto que ninguém cadastrou.
+25. O sistema de OS atual tem **entrada de nota**? Dá para exportar os itens (evita digitar duas vezes)?
+26. A Scherer coloca o **número da OS ou a placa** no pedido da nota (campo `xPed`)? Dá para pedir? E o **número da nota no campo "número do documento"** do boleto?
+27. **Quem cadastra** notas e boletos e **quem paga**? Separar as duas funções é o controle mais barato.
+28. Compras **sem nota** (balcão): como tratar? Nota manual com motivo, ou proibir?
+29. **CNPJ da oficina** e CNPJ/telefone de confirmação de cada fornecedor (para cadastrar em Compras > Fornecedores).
+
 ## C. Decisões da política da locadora (aguardam você)
 
 Estão marcadas como "decisão sua" em `04-locadora.md`: limite (R$ 12 mil), atraso máximo (15 dias), juros e multa (1% e 2%), plano de quitação do saldo antigo (8 a 12 semanas), valor a partir do qual a OS precisa de aprovação por escrito (R$ 1.500), desconto de frota condicional (10% a 12%).

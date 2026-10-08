@@ -67,7 +67,7 @@ O banco é um arquivo. Se o servidor morrer sem cópia, o financeiro acaba.
 0 3 * * * docker compose -f /caminho/Oto/app/docker-compose.yml exec -T multmec node scripts/backup.js
 ```
 
-Isso protege de erro, não de perder o servidor inteiro. **Leve as cópias para fora**: sincronize a pasta de backups com o Google Drive (por exemplo com `rclone`) ou ative o backup/snapshot do provedor. Teste restaurar uma vez: pare o sistema, copie um arquivo `multmec-AAAA-MM-DD-HH-MM.db` sobre `multmec.db`, suba de novo.
+O banco guarda também o **XML original das notas fiscais** (compactado), então o backup já leva as provas da conferência de compras (`09-conciliacao-compras.md`). Isso protege de erro, não de perder o servidor inteiro. **Leve as cópias para fora**: sincronize a pasta de backups com o Google Drive (por exemplo com `rclone`) ou ative o backup/snapshot do provedor. Teste restaurar uma vez: pare o sistema, copie um arquivo `multmec-AAAA-MM-DD-HH-MM.db` sobre `multmec.db`, suba de novo.
 
 ## 6. Segurança (lista de conferência)
 
@@ -103,7 +103,7 @@ Use `systemd` ou `pm2` para manter rodando e reiniciar sozinho.
 cd app && npm install
 npm run demo        # cria um banco com dados inventados em app/data/multmec.db
 npm start           # http://localhost:3000   senha de desenvolvimento: multmec
-npm test            # 20 testes
+npm test            # 68 testes
 ```
 
 Para usar seus dados reais localmente: `npm run importar -- caminho/servicos.csv --corte AAAA-MM-DD` (em outro `DB_PATH` se já rodou o demo).
