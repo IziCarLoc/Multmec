@@ -50,7 +50,7 @@ Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da of
 
 **Média** (resolver na semana): boleto vencido; **banco diferente do que o fornecedor costuma usar** (depois de 2 boletos do mesmo fornecedor, um boleto de outro banco é o sinal mais comum de boleto adulterado, mas também acontece troca legítima de conta: confirme por telefone); parcela perto de vencer ou vencida **sem boleto**; custo digitado na OS diferente das notas; peças de uma nota sem destino (depois de alguns dias).
 
-**Baixa** (organização): nota digitada à mão sem chave de acesso; fornecedor sem CNPJ; preço de peça bem acima do histórico; vencimento do boleto diferente da parcela; OS com custo de peça e nenhuma nota (resumo único).
+**Baixa** (organização): **falta conferir quem recebe o boleto** (o CNPJ do beneficiário não foi informado; sobe para média quando faltam 3 dias ou menos para vencer: é a hora de olhar o app do banco); nota digitada à mão sem chave de acesso; fornecedor sem CNPJ; preço de peça bem acima do histórico; vencimento do boleto diferente da parcela; OS com custo de peça e nenhuma nota (resumo único).
 
 ### "Está certo, conferi" (aceite)
 

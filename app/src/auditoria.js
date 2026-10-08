@@ -85,6 +85,12 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
       add({ tipo: 'boleto_pagador_diverge', severidade: mesmaRaiz ? 'media' : 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
         titulo: 'Boleto emitido contra outro CNPJ', detalhe: `${resumoB}. O pagador do boleto é ${formatarCnpj(b.pagador_cnpj)}, não a oficina (${formatarCnpj(cfg.cnpjOficina)}). Este boleto pode não ser de vocês.` });
     }
+    // o CNPJ de quem recebe não vem no código de barras: sem ele digitado (ou lido do texto do boleto) a conferência principal não acontece
+    if (!b.beneficiario_cnpj && b.situacao === 'aberto' && b.banco) {
+      add({ tipo: 'boleto_sem_beneficiario', severidade: b.vencimento <= somarDias(hojeStr, 3) ? 'media' : 'baixa', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento,
+        titulo: 'Falta conferir quem recebe este boleto',
+        detalhe: `${resumoB}. O CNPJ do beneficiário não foi informado, então o sistema não consegue dizer se o dinheiro vai para o fornecedor. Cole o texto do boleto ou digite o CNPJ que o app do banco mostra antes de pagar.` });
+    }
     // fornecedor que sempre cobrou por um banco e agora aparece com outro: sinal clássico de boleto adulterado (ou de troca legítima de conta)
     if (b.fornecedor_id && b.banco) {
       const anteriores = boletos.filter((x) => x.fornecedor_id === b.fornecedor_id && x.id < b.id && x.banco);

@@ -15,7 +15,7 @@ function cenario() {
   const cfg = () => lerConfig(db);
   const nota = (nNF, valor, dups = [{ venc: '2026-10-20', valor }], extra = {}) =>
     importarNotaXml(db, xmlNfe({ nNF, itens: [{ cProd: `C${nNF}`, xProd: `PECA ${nNF}`, q: 2, vProd: valor }], dups, ...extra })).nota_id;
-  const boleto = (valor, vencimento, extra = {}) => criarBoleto(db, { linha: linhaDigitavel({ valor, vencimento }), ...extra }, HOJE, cfg());
+  const boleto = (valor, vencimento, extra = {}) => criarBoleto(db, { linha: linhaDigitavel({ valor, vencimento }), beneficiario_cnpj: CNPJ_FORNECEDOR, ...extra }, HOJE, cfg());
   const cliente = Number(db.prepare("INSERT INTO clientes (nome) VALUES ('CLIENTE TESTE')").run().lastInsertRowid);
   const os = (numero, placa, extra = {}) => Number(db.prepare(`INSERT INTO vendas (numero, data, cliente_id, placa, situacao, valor_total, valor_mao_obra, custo_pecas)
       VALUES (?, ?, ?, ?, 'concluida', 900, 200, ?)`).run(numero, extra.data ?? '2026-10-02', cliente, placa, extra.custo ?? null).lastInsertRowid);
@@ -314,4 +314,32 @@ test('boleto único que cobre todas as parcelas da nota é sugerido, e fornecedo
   assert.equal(r.auto.ligado, false);                               // 70: sugere, não liga sozinho
   assert.equal(r.auto.sugestoes[0].score, 70);
   assert.throws(() => criarBoleto(db, { valor: 10, vencimento: '2026-10-30', fornecedor_id: 999 }, HOJE, cfg()), /Fornecedor não encontrado/);
+});
+
+test('boleto aberto sem o CNPJ do beneficiário vira lembrete (baixa) e sobe para média perto do vencimento', () => {
+  const { db, cfg, nota, boleto } = cenario();
+  nota(500, 320, [{ venc: '2026-11-20', valor: 320 }]);
+  const longe = boleto(320, '2026-11-20', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA', beneficiario_cnpj: '' });
+  assert.deepEqual(longe.ocorrencias.map((o) => [o.tipo, o.severidade]), [['boleto_sem_beneficiario', 'baixa']]);
+  nota(501, 90, [{ venc: '2026-10-10', valor: 90 }]);
+  const perto = boleto(90, '2026-10-10', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA', beneficiario_cnpj: '' });
+  assert.deepEqual(perto.ocorrencias.map((o) => [o.tipo, o.severidade]), [['boleto_sem_beneficiario', 'media']]);
+  const com = boleto(777.77, '2026-11-25', { fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' });
+  assert.ok(!com.ocorrencias.some((o) => o.tipo === 'boleto_sem_beneficiario'));
+  // lembrete não trava o pagamento
+  assert.doesNotThrow(() => pagarBoleto(db, perto.boleto_id, {}, HOJE, cfg()));
+});
+
+test('fornecedor que sempre cobrou por um banco e aparece com outro: alerta médio (boleto_banco_novo)', () => {
+  const { db, cfg, nota, boleto } = cenario();
+  const b = (valor, venc, banco) => criarBoleto(db, { linha: linhaDigitavel({ banco, valor, vencimento: venc }), beneficiario_cnpj: CNPJ_FORNECEDOR, fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' }, HOJE, cfg());
+  nota(600, 100, [{ venc: '2026-10-20', valor: 100 }]); nota(601, 110, [{ venc: '2026-10-21', valor: 110 }]); nota(602, 120, [{ venc: '2026-10-22', valor: 120 }]);
+  const r1 = b(100, '2026-10-20', '341');
+  const r2 = b(110, '2026-10-21', '341');
+  assert.ok(!r1.ocorrencias.some((o) => o.tipo === 'boleto_banco_novo'));
+  assert.ok(!r2.ocorrencias.some((o) => o.tipo === 'boleto_banco_novo'));     // só 1 anterior: ainda sem histórico
+  const r3 = b(120, '2026-10-22', '237');
+  assert.ok(r3.ocorrencias.some((o) => o.tipo === 'boleto_banco_novo' && o.severidade === 'media'));
+  const r4 = criarBoleto(db, { linha: linhaDigitavel({ banco: '341', valor: 55, vencimento: '2026-10-23' }), beneficiario_cnpj: CNPJ_FORNECEDOR, fornecedor_nome: 'DISTRIBUIDORA TESTE LTDA' }, HOJE, cfg());
+  assert.ok(!r4.ocorrencias.some((o) => o.tipo === 'boleto_banco_novo'));     // voltou a um banco já usado
 });
