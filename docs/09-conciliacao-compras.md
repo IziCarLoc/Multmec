@@ -45,10 +45,10 @@ Ao abrir o sistema pela primeira vez, vá em **Metas** e preencha o **CNPJ da of
 | Nota emitida para outro CNPJ | A nota é de outro destinatário. | Pode ser nota de outro cliente. Peça a correta. |
 | Boleto cobra mais do que as notas explicam | Sobra dinheiro: juros, nota faltando, ou cobrança indevida. | Peça o detalhamento. |
 | Boletos somam mais que a nota | Mais boleto do que nota: possível cobrança em duplicidade. | Pague só o que a nota cobre. |
-| Boleto de nota CANCELADA | O fornecedor cancelou a nota e ainda cobra. | Não pague. |
+| Boleto de nota CANCELADA ou DENEGADA | O fornecedor cancelou a nota (ou a SEFAZ negou o uso dela) e ainda cobra. | Não pague; peça que o fornecedor cancele o título. |
 | Possível boleto em duplicidade | Dois boletos com mesmo fornecedor, valor e vencimento. | Pague um só, depois de confirmar. |
 
-**Média** (resolver na semana): boleto vencido; parcela perto de vencer ou vencida **sem boleto**; custo digitado na OS diferente das notas; peças de uma nota sem destino (depois de alguns dias).
+**Média** (resolver na semana): boleto vencido; **banco diferente do que o fornecedor costuma usar** (depois de 2 boletos do mesmo fornecedor, um boleto de outro banco é o sinal mais comum de boleto adulterado, mas também acontece troca legítima de conta: confirme por telefone); parcela perto de vencer ou vencida **sem boleto**; custo digitado na OS diferente das notas; peças de uma nota sem destino (depois de alguns dias).
 
 **Baixa** (organização): nota digitada à mão sem chave de acesso; fornecedor sem CNPJ; preço de peça bem acima do histórico; vencimento do boleto diferente da parcela; OS com custo de peça e nenhuma nota (resumo único).
 
@@ -78,13 +78,18 @@ A ligação é feita **automaticamente só se a melhor opção tiver 90 pontos o
 
 ## 5. O que o sistema NÃO consegue saber (limites honestos)
 
-1. **Dígitos verificadores pegam erro de digitação, não fraude.** Um golpista gera um boleto com dígitos corretos. A defesa contra fraude é **comparar o CNPJ do beneficiário** com o do fornecedor e **ter a nota por trás**, não a validade do código.
-2. **O CNPJ do beneficiário não está no código de barras.** O sistema só pode comparar o que alguém digitou do papel. Se o campo ficar vazio, a regra **não dispara** (e a tela mostra isso). Dica: peça ao banco a lista de boletos DDA (Débito Direto Autorizado), que já traz o CNPJ do beneficiário, e confira de lá.
-3. **Nota digitada à mão não prova nada.** Uma nota lançada sem XML pode ter sido inventada ou errada. O sistema marca como "sem chave" e **não** a trata como confirmação forte.
-4. **Não consulta a SEFAZ.** Hoje o XML vem de você. Dá para conferir a nota digitando a chave no portal nacional da NF-e (gratuito). A consulta e o download automáticos exigem **certificado digital da oficina (A1)** e ficam para uma segunda fase.
-5. **Só vê o que foi lançado.** Se um boleto não for cadastrado, o sistema não sabe que ele existe. A rotina precisa ser: **todo boleto que chega é cadastrado antes de ir para pagamento**.
-6. **Preço acima do histórico** compara com as suas compras anteriores no sistema; com pouca história, não alerta.
-7. **A OS informada pelo fornecedor** (`xPed`) só aparece se o fornecedor preencher. Se ele não preenche, você aplica à mão (rápido, mas é trabalho).
+1. **Dígitos verificadores pegam erro de digitação, não fraude.** Um golpista gera um boleto com dígitos corretos. A defesa contra fraude é **comparar o CNPJ do beneficiário** com o do fornecedor e **ter a nota por trás**, não a validade do código. O sistema só recusa o que é matematicamente impossível (dígito errado, vencimento fora da faixa que os bancos aceitam).
+2. **O CNPJ do beneficiário e o do pagador não estão no código de barras.** Vêm do texto/PDF do boleto, do app do banco ou do DDA. Se o campo ficar vazio, a regra **não dispara**.
+3. **O XML sozinho não prova a nota.** Um arquivo `.xml` pode ser forjado ou alterado depois de autorizado; o sistema confere que a chave, o número, o CNPJ e o protocolo são coerentes entre si e guarda o arquivo, mas **não verifica a assinatura digital nem consulta a SEFAZ**. A prova real é consultar a chave no portal nacional da NF-e (grátis, com captcha) ou, na fase 2, pelo certificado da oficina. Faça isso nas notas grandes e em qualquer nota que o sistema marque como estranha.
+4. **Nota digitada à mão não prova nada.** Pode ter sido inventada ou errada. O sistema marca como "sem chave" e não a trata como confirmação forte.
+5. **Só vê o que foi lançado.** Se um boleto não for cadastrado, o sistema não sabe que ele existe. A rotina precisa ser: **todo boleto que chega é cadastrado antes de ir para pagamento**. O DDA do banco (seção 7) é o que fecha essa brecha.
+6. **O XML não diz qual é o boleto.** O XML da nota traz o valor e as parcelas (quando o fornecedor preenche), mas nenhum campo identifica o boleto. A ligação é por fornecedor + valor + vencimento (e pelo "número do documento" do boleto, quando existe). Se o fornecedor **agrupa várias notas num boleto** (fatura do período), o sistema tenta achar a combinação de 2 a 5 notas; se não achar, pede ligação manual.
+7. **Parcelas são opcionais na nota.** Muita nota sai sem as parcelas; nesse caso o sistema compara o boleto com o saldo da nota inteira. Em nota de fornecedor do Regime Normal (reforma tributária, 2026) o total pode vir com **IBS/CBS "por fora"**; o sistema aceita o boleto por qualquer um dos dois valores e avisa que há dois.
+8. **Boleto vencido** costuma ter juros e multa que não aparecem no código de barras: a diferença na hora de pagar é encargo, não erro.
+9. **Preço acima do histórico** compara com as suas compras anteriores no sistema; com pouca história, não alerta.
+10. **A OS informada pelo fornecedor** (`xPed`, até 15 caracteres, ex.: `OS1043`) só aparece se o fornecedor preencher. Se ele não preenche, você aplica à mão (rápido, mas é trabalho).
+11. **Nota de devolução, crédito ou ajuste** não gera boleto: o sistema as separa (um boleto ligado a elas é suspeito) mas **ainda não abate** o crédito do que você deve.
+12. **Ainda não sabemos como a Scherer preenche as notas** (parcelas, pedido, texto livre). Veja os 10 a 20 primeiros XML dela e ajuste as regras com base neles.
 
 ## 6. Rotina que fecha o controle (processo, não só sistema)
 
@@ -105,13 +110,33 @@ Sugestões para combinar com os fornecedores, principalmente a Scherer:
 4. Comece pela aba **Conferência**: o que aparecer como *Boleto sem nota* ou *Boleto pago sem nota* é a lista do que cobrar explicação.
 5. Compare o extrato do fornecedor com o que foi pago no banco, linha a linha. O sistema ajuda, mas o extrato é a prova.
 
-## 7. XML da nota: onde conseguir
+## 7. XML da nota e DDA: onde conseguir
 
-- O fornecedor envia por e-mail junto com o DANFE (PDF). **O PDF não serve**: precisa do arquivo `.xml`.
-- Portais de fornecedores costumam ter "baixar XML".
-- Sem o XML: consulta pela **chave de acesso** (44 dígitos impressa no DANFE) no portal nacional da NF-e.
-- O sistema guarda o XML original comprimido no banco (a nota fiscal é documento fiscal: guarde por no mínimo 5 anos; fale com o contador). **O backup do banco já leva os XMLs.**
-- Fase 2 (opcional): com o certificado digital da oficina, o sistema pode baixar sozinho todas as notas emitidas contra o CNPJ da oficina. Isso **elimina** a dependência de o fornecedor mandar e é a melhor defesa contra nota "sumida".
+**XML da nota**
+
+- O fornecedor envia por e-mail junto com o DANFE (PDF). **O PDF não serve**: precisa do arquivo `.xml`. O emitente deve enviar ou disponibilizar o XML ao destinatário; exija em toda compra.
+- Portais de fornecedores costumam ter "baixar XML". O contador também costuma já baixar as notas de entrada: peça o lote.
+- Só com a **chave de acesso** (44 dígitos do DANFE): consulta resumida no portal nacional da NF-e (grátis, com captcha). Serve para confirmar que a nota existe, o valor e a situação; não baixa o XML sem certificado.
+- O sistema guarda o XML original comprimido no banco, com o SHA-256 (a nota fiscal é documento fiscal: guarde por no mínimo 5 anos; fale com o contador). **O backup do banco já leva os XMLs.**
+- Se a SEFAZ **cancelar** a nota, importe o XML de cancelamento (o sistema aceita) ou marque a nota como cancelada. O prazo para o fornecedor cancelar é curto (24 horas pela regra nacional; no RS, 7 dias) e só vale se a mercadoria ainda não saiu; a **Carta de Correção não muda valor, data nem CNPJ**, então o valor do XML original continua valendo para o boleto.
+
+**Fase 2: baixar sozinho todas as notas emitidas contra o CNPJ da oficina**
+
+Com o **certificado digital A1 (e-CNPJ)** da oficina, o sistema pode consultar o serviço nacional de distribuição de DF-e e receber **todas as notas emitidas contra o CNPJ**, sem depender do fornecedor. Detalhes que mudam a decisão:
+- Sem a **Ciência da Operação**, a SEFAZ entrega só o **resumo** (fornecedor, valor, data, situação). O resumo já responde a pergunta central da auditoria: *"existe nota deste fornecedor, deste valor, contra o meu CNPJ?"* Com a Ciência (um clique por nota, ou automático), vem o XML completo.
+- A **Manifestação do Destinatário** não é obrigatória para oficina de autopeças, mas o **Desconhecimento da Operação** é o instrumento para "nota emitida contra o meu CNPJ que eu não reconheço". A **Confirmação** impede o fornecedor de cancelar a nota: só confirme depois de conferir peça e OS.
+- Os documentos ficam **90 dias** na SEFAZ e **não há histórico antes do primeiro uso**: quanto antes começar, melhor. O passivo vem do fornecedor ou do contador.
+- Limites do serviço: uma consulta por hora quando não há novidade (consultar demais bloqueia por uma hora); o certificado precisa ser e-CNPJ A1 (arquivo), não token.
+- Futuro: a NT 2026.006 (produção a partir de 03/11/2026, ainda não obrigatória) cria um campo para o fornecedor **vincular a nota ao boleto/Pix** (`idTransacao`) e um evento de vinculação. Se um dia o fornecedor preencher, a ligação nota × boleto passa a ser exata. Hoje não dá para depender disso.
+
+**DDA (Débito Direto Autorizado): a melhor defesa para a pergunta do dono**
+
+O DDA é o serviço dos bancos que lista **todos os boletos registrados emitidos contra o CNPJ da oficina**, de qualquer banco, direto da base centralizada. A própria FEBRABAN diz que o boleto que vem do DDA não pode ser adulterado por golpista. Para a oficina:
+- **Regra de ouro:** só pague boleto que (a) apareça no DDA ou tenha a oficina como pagador impresso **e** (b) case com uma nota recebida.
+- Um boleto emitido por engano contra **outro** cliente da Scherer **não aparece** no DDA da oficina: é exatamente o caso que você descreveu.
+- Limites: boleto **não registrado** não aparece (então a ausência exige conferência, não prova fraude); o DDA mostra beneficiário, valor, vencimento e, em alguns bancos, o número do documento.
+- Peça ao gerente: *(1)* ativar o DDA para o CNPJ da oficina (e filiais); *(2)* se dá para **exportar** a lista (arquivo CNAB 240 de DDA ou relatório em planilha) para o sistema importar e comparar automaticamente. A oferta de exportação varia por banco: não confirmei.
+- Antes de pagar qualquer boleto no app do banco, **leia na tela de confirmação o nome e o CNPJ do beneficiário** e confira com o fornecedor; confira também se os **3 primeiros dígitos do código de barras** são o banco que a tela mostra.
 
 ## 8. Parâmetros (Metas)
 
