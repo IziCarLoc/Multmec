@@ -6,11 +6,11 @@ import { criarApi } from './api.js';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 
-export function criarApp(db, { senha, segredo, agora, confiarProxy = false } = {}) {
+export function criarApp(db, { senha, senhaLancamento = null, segredo, agora, confiarProxy = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (confiarProxy) app.set('trust proxy', 1);
-  const auth = criarAuth({ senha, segredo, db, agora: agora ? () => agora().getTime() : undefined });
+  const auth = criarAuth({ senha, senhaLancamento, segredo, db, agora: agora ? () => agora().getTime() : undefined });
 
   app.use((req, res, next) => {
     if (req.secure || (confiarProxy && req.headers['x-forwarded-proto'] === 'https')) res.set('Strict-Transport-Security', 'max-age=15552000');
@@ -37,7 +37,7 @@ export function criarApp(db, { senha, segredo, agora, confiarProxy = false } = {
   // corpo pequeno antes de saber quem é: um anônimo não pode obrigar o servidor a processar 8 MB
   app.post('/api/login', express.json({ limit: '2kb' }), (req, res) => auth.login(req, res));
   app.post('/api/logout', (req, res) => auth.logout(req, res));
-  app.get('/api/sessao', (req, res) => res.json({ logado: auth.estaLogado(req) }));
+  app.get('/api/sessao', (req, res) => { const perfil = auth.perfilDe(req); res.json({ logado: !!perfil, perfil }); });
   app.use('/api', auth.exigir, express.json({ limit: '8mb' }), criarApi(db, { agora }));
   app.use((err, req, res, next) => {          // JSON malformado etc.
     if (err.type === 'entity.parse.failed' || err.type === 'encoding.unsupported' || err.type === 'charset.unsupported') return res.status(400).json({ erro: 'JSON inválido.' });

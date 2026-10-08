@@ -1,4 +1,6 @@
 import express from 'express';
+import { soDono, ehDono } from './perfis.js';
+import { contexto } from './trilha.js';
 import { lerConfig, gravarConfig } from './db.js';
 import * as F from './finance.js';
 import { importarServicos, lerPlanilhaServicos } from './importar.js';
@@ -25,9 +27,11 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   const wrap = (fn) => (req, res, next) => {
     try { fn(req, res, next); } catch (e) { next(e); }
   };
+  // a trilha de auditoria anota o perfil de quem fez o pedido (o corpo do pedido já foi lido: o contexto cobre todo o tratamento)
+  api.use((req, res, next) => contexto.run({ perfil: req.perfil ?? null }, next));
 
   // ------------------------------------------------------------ painel
-  api.get('/painel', wrap((req, res) => {
+  api.get('/painel', soDono, wrap((req, res) => {
     const cfg = lerConfig(db);
     const h = hoje();
     const ym = req.query.mes ? V.mes(req.query.mes) : mesDe(h);
@@ -50,8 +54,14 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   }));
 
   // ------------------------------------------------------------ configuração
-  api.get('/config', wrap((req, res) => res.json(lerConfig(db))));
-  api.put('/config', wrap((req, res) => {
+  // quem só lança vê só o que precisa para trabalhar (CNPJ da oficina, prazos); meta, retirada, impostos e saldo são do dono
+  api.get('/config', wrap((req, res) => {
+    const c = lerConfig(db);
+    if (ehDono(req)) return res.json(c);
+    const { cnpjOficina, diasTrava, pctAvisoLimite, toleranciaValor, diasNotaSemDestino, diasNotaSemBoleto, diasDevolucaoAdiantamento, auditoriaDesde, feriados, sabadoConta } = c;
+    res.json({ cnpjOficina, diasTrava, pctAvisoLimite, toleranciaValor, diasNotaSemDestino, diasNotaSemBoleto, diasDevolucaoAdiantamento, auditoriaDesde, feriados, sabadoConta });
+  }));
+  api.put('/config', soDono, wrap((req, res) => {
     const b = req.body || {};
     const novo = {};
     if ('metaFaturamento' in b) novo.metaFaturamento = V.dinheiro(b.metaFaturamento, { campo: 'a meta', obrigatorio: true });
@@ -99,6 +109,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     }
     if ('diasNotaSemDestino' in b) novo.diasNotaSemDestino = V.inteiro(b.diasNotaSemDestino, { campo: 'os dias para dar destino às peças', min: 0, max: 365, padrao: 7 });
     if ('diasNotaSemBoleto' in b) novo.diasNotaSemBoleto = V.inteiro(b.diasNotaSemBoleto, { campo: 'os dias de antecedência do boleto', min: 0, max: 60, padrao: 5 });
+    if ('diasDevolucaoAdiantamento' in b) novo.diasDevolucaoAdiantamento = V.inteiro(b.diasDevolucaoAdiantamento, { campo: 'o prazo para a outra empresa devolver', min: 1, max: 365, padrao: 30 });
     if ('saldoCaixaInicial' in b) novo.saldoCaixaInicial = V.dinheiro(b.saldoCaixaInicial, { campo: 'o saldo inicial', minimo: -10_000_000 });
     if ('saldoCaixaInicialData' in b) novo.saldoCaixaInicialData = V.data(b.saldoCaixaInicialData, { campo: 'A data do saldo', obrigatorio: false }) || '';
     gravarConfig(db, novo);
@@ -160,7 +171,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     });
     res.json(r);
   }));
-  api.post('/clientes/:id/saldo-anterior', wrap((req, res) => {
+  api.post('/clientes/:id/saldo-anterior', soDono, wrap((req, res) => {
     const id = V.idDe(req.params.id);
     if (!db.prepare('SELECT 1 FROM clientes WHERE id = ?').get(id)) return res.status(404).json({ erro: 'Cliente não encontrado.' });
     const valor = V.dinheiro(req.body?.valor, { campo: 'o saldo anterior', obrigatorio: true, minimo: 0.01 });
@@ -283,7 +294,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     db.prepare(`UPDATE vendas SET numero=@numero, data=@data, cliente_id=@cliente_id, veiculo=@veiculo, placa=@placa, mecanico_id=@mecanico_id, situacao=@situacao, valor_total=@valor_total, valor_mao_obra=@valor_mao_obra, custo_pecas=@custo_pecas, custo_frete=@custo_frete, custo_insumos=@custo_insumos, forma_pagamento=@forma_pagamento, vencimento=@vencimento, obs=@obs, data_estimada=0, custo_pecas_auto=@auto WHERE id=@id`).run({ ...v, id, auto: (v.custo_pecas ?? null) === (atual.custo_pecas ?? null) ? atual.custo_pecas_auto : 0 });
     res.json({ ok: true });
   }));
-  api.delete('/vendas/:id', wrap((req, res) => {
+  api.delete('/vendas/:id', soDono, wrap((req, res) => {
     db.prepare('DELETE FROM vendas WHERE id = ?').run(V.idDe(req.params.id));
     res.json({ ok: true });
   }));
@@ -297,7 +308,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     db.prepare('INSERT INTO recebimentos (venda_id, data, valor, forma) VALUES (?, ?, ?, ?)').run(id, V.data(req.body?.data || hoje(), { campo: 'A data' }), valor, V.opcao(req.body?.forma, FORMAS, { campo: 'a forma', padrao: null }));
     res.json({ ok: true });
   }));
-  api.delete('/recebimentos/:id', wrap((req, res) => {
+  api.delete('/recebimentos/:id', soDono, wrap((req, res) => {
     db.prepare('DELETE FROM recebimentos WHERE id = ?').run(V.idDe(req.params.id));
     res.json({ ok: true });
   }));
@@ -341,6 +352,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     };
   };
   api.post('/saidas', wrap((req, res) => {
+    // "já paguei" é marcar como paga: quem só lança não faz isso (a baixa é do dono)
+    if (req.body?.pagarAgora && !ehDono(req)) return res.status(403).json({ erro: 'Marcar como paga é só do dono.' });
     const s = saidaDe(req.body || {});
     const id = Number(db.prepare('INSERT INTO saidas (descricao, categoria_id, fornecedor, valor, vencimento, obs) VALUES (@descricao, @categoria_id, @fornecedor, @valor, @vencimento, @obs)').run(s).lastInsertRowid);
     if (req.body?.pagarAgora) db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = valor WHERE id = ?').run(hoje(), id);
@@ -358,13 +371,13 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     db.prepare('UPDATE saidas SET descricao=@descricao, categoria_id=@categoria_id, fornecedor=@fornecedor, valor=@valor, vencimento=@vencimento, obs=@obs WHERE id=@id').run({ ...s, id });
     res.json({ ok: true });
   }));
-  api.delete('/saidas/:id', wrap((req, res) => {
+  api.delete('/saidas/:id', soDono, wrap((req, res) => {
     const id = V.idDe(req.params.id);
     if (db.prepare('SELECT 1 FROM boletos WHERE saida_id = ?').get(id)) throw new V.ErroValidacao('Esta conta veio de um boleto. Cancele o boleto em Compras.');
     db.prepare('DELETE FROM saidas WHERE id = ?').run(id);
     res.json({ ok: true });
   }));
-  api.post('/saidas/:id/pagar', wrap((req, res) => {
+  api.post('/saidas/:id/pagar', soDono, wrap((req, res) => {
     const id = V.idDe(req.params.id);
     const s = db.prepare('SELECT * FROM saidas WHERE id = ?').get(id);
     if (!s) return res.status(404).json({ erro: 'Conta não encontrada.' });
@@ -388,8 +401,8 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
     res.json({ ok: true });
   }));
 
-  api.get('/recorrentes', wrap((req, res) => res.json(db.prepare(`SELECT r.*, c.nome AS categoria, c.grupo FROM recorrentes r JOIN categorias c ON c.id = r.categoria_id ORDER BY r.ativo DESC, c.ordem, r.descricao`).all())));
-  api.post('/recorrentes', wrap((req, res) => {
+  api.get('/recorrentes', soDono, wrap((req, res) => res.json(db.prepare(`SELECT r.*, c.nome AS categoria, c.grupo FROM recorrentes r JOIN categorias c ON c.id = r.categoria_id ORDER BY r.ativo DESC, c.ordem, r.descricao`).all())));
+  api.post('/recorrentes', soDono, wrap((req, res) => {
     const b = req.body || {};
     const cat = b.categoriaId;
     if (!db.prepare('SELECT 1 FROM categorias WHERE id = ?').get(cat)) throw new V.ErroValidacao('Escolha a categoria.');
@@ -398,7 +411,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       V.dinheiro(b.valor, { campo: 'o valor', obrigatorio: true, minimo: 0.01 }), V.inteiro(b.diaVencimento, { campo: 'o dia', min: 1, max: 31, padrao: 5 }));
     res.status(201).json({ id: Number(r.lastInsertRowid) });
   }));
-  api.put('/recorrentes/:id', wrap((req, res) => {
+  api.put('/recorrentes/:id', soDono, wrap((req, res) => {
     const id = V.idDe(req.params.id);
     const a = db.prepare('SELECT * FROM recorrentes WHERE id = ?').get(id);
     if (!a) return res.status(404).json({ erro: 'Modelo não encontrado.' });
@@ -414,7 +427,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   }));
 
   // ------------------------------------------------------------ relatórios e simulador
-  api.get('/relatorios', wrap((req, res) => {
+  api.get('/relatorios', soDono, wrap((req, res) => {
     const h = hoje();
     const de = V.data(req.query.de || `${somarMeses(mesDe(h), -5)}-01`, { campo: 'A data inicial' });
     const ate = V.data(req.query.ate || h, { campo: 'A data final' });
@@ -423,7 +436,7 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
       orcamentos: F.orcamentosAbertos(db),
     });
   }));
-  api.post('/simulador', wrap((req, res) => {
+  api.post('/simulador', soDono, wrap((req, res) => {
     const b = req.body || {};
     const cfg = lerConfig(db);
     const h = hoje();
@@ -435,19 +448,19 @@ export function criarApi(db, { agora = () => new Date() } = {}) {
   }));
 
   // ------------------------------------------------------------ importar / exportar
-  api.post('/importar/previa', wrap((req, res) => {
+  api.post('/importar/previa', soDono, wrap((req, res) => {
     const csv = V.texto(req.body?.csv, { campo: 'o arquivo', obrigatorio: true, max: 5_000_000 });
     const { linhas, avisos } = lerPlanilhaServicos(csv);
     const porMes = {};
     for (const l of linhas) if (l.situacao === 'concluida') { porMes[l.data.slice(0, 7)] = (porMes[l.data.slice(0, 7)] || 0) + l.valorTotal; }
     res.json({ linhas: linhas.length, orcamentos: linhas.filter((l) => l.situacao === 'orcamento').length, datasEstimadas: linhas.filter((l) => l.dataEstimada).length, avisos, faturamentoPorMes: porMes });
   }));
-  api.post('/importar', wrap((req, res) => {
+  api.post('/importar', soDono, wrap((req, res) => {
     const csv = V.texto(req.body?.csv, { campo: 'o arquivo', obrigatorio: true, max: 5_000_000 });
     const corte = V.data(req.body?.quitadasAte, { campo: 'A data de corte', obrigatorio: false });
     res.json(importarServicos(db, csv, { quitadasAte: corte, atualizar: req.body?.atualizar === true }));
   }));
-  api.get('/exportar/vendas.csv', wrap((req, res) => {
+  api.get('/exportar/vendas.csv', soDono, wrap((req, res) => {
     const cab = ['OS', 'data', 'cliente', 'placa', 'veiculo', 'mecanico', 'situacao', 'total', 'mao_de_obra', 'custo_pecas', 'custo_frete', 'custo_insumos', 'lucro_bruto', 'recebido', 'aberto'];
     const linhas = db.prepare(`${SELECT_VENDA} ${req.query.mes ? "WHERE substr(v.data,1,7) = ?" : ''} ORDER BY v.data, v.id`).all(...(req.query.mes ? [V.mes(req.query.mes)] : [])).map(decorar);
     const corpo = linhas.map((v) => [v.numero, v.data, v.cliente, v.placa, v.veiculo, v.mecanico, v.situacao, v.valor_total, v.valor_mao_obra, v.custo_pecas, v.custo_frete, v.custo_insumos, v.lucro_bruto, v.recebido, v.aberto].map(csvCelula).join(','));

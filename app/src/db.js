@@ -28,6 +28,7 @@ export const CONFIG_PADRAO = {
   variacao_preco_pct: '0.15',        // alerta quando o preço unitário passa disso sobre compras anteriores
   dias_nota_sem_destino: '7',        // dias para dar destino às peças de uma nota
   dias_nota_sem_boleto: '5',         // dias antes do vencimento da parcela sem boleto correspondente
+  dias_devolucao_adiantamento: '30', // prazo combinado para outra empresa do grupo devolver o que a oficina pagou por ela
 };
 
 const CATEGORIAS = [
@@ -70,6 +71,11 @@ function migrar(db) {
   if (!colunas('notas_compra').includes('pago_no_ato')) db.exec('ALTER TABLE notas_compra ADD COLUMN pago_no_ato INTEGER NOT NULL DEFAULT 0');
   if (!colunas('notas_compra').includes('cnpj_receb')) db.exec('ALTER TABLE notas_compra ADD COLUMN cnpj_receb TEXT');
   if (!colunas('fornecedores').includes('beneficiarios_autorizados')) db.exec('ALTER TABLE fornecedores ADD COLUMN beneficiarios_autorizados TEXT');
+  const novas = (tabela, lista) => { for (const [nome, def] of lista) if (!colunas(tabela).includes(nome)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${nome} ${def}`); };
+  novas('boletos', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT']]);
+  novas('notas_compra', [['empresa_id', 'INTEGER'], ['criado_por', 'TEXT'], ['consulta_em', 'TEXT'], ['consulta_situacao', 'TEXT'], ['consulta_valor', 'REAL'], ['consulta_por', 'TEXT']]);
+  novas('auditoria_log', [['perfil', 'TEXT']]);
+  reconstruirAlocacoes(db);
   if (!colunas('nota_itens').includes('info_adic')) db.exec('ALTER TABLE nota_itens ADD COLUMN info_adic TEXT');
   if (!colunas('notas_compra').includes('cancelada_por')) db.exec('ALTER TABLE notas_compra ADD COLUMN cancelada_por TEXT');
   if (!colunas('fornecedores').includes('confirmado_em')) db.exec('ALTER TABLE fornecedores ADD COLUMN confirmado_em TEXT');
@@ -78,6 +84,33 @@ function migrar(db) {
   if (!colunas('vendas').includes('custo_pecas_auto')) {
     db.exec('ALTER TABLE vendas ADD COLUMN custo_pecas_auto INTEGER NOT NULL DEFAULT 0');   // 1 = custo veio das notas
   }
+}
+
+/** O CHECK do destino não aceitava 'outra_empresa': em banco antigo a tabela é refeita (SQLite não altera CHECK). Receita oficial: cria a nova, copia, apaga a antiga, renomeia. */
+function reconstruirAlocacoes(db) {
+  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'alocacoes'").get()?.sql ?? '';
+  if (!sql || sql.includes('outra_empresa')) return;
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE alocacoes_nova (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL REFERENCES nota_itens(id) ON DELETE CASCADE,
+        destino TEXT NOT NULL DEFAULT 'os' CHECK (destino IN ('os','estoque','uso_interno','devolvido','outra_empresa')),
+        venda_id INTEGER REFERENCES vendas(id) ON DELETE CASCADE,
+        empresa_id INTEGER REFERENCES empresas_grupo(id),
+        quantidade REAL NOT NULL CHECK (quantidade > 0),
+        valor REAL NOT NULL,
+        obs TEXT,
+        criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (destino <> 'os' OR venda_id IS NOT NULL)
+      )`);
+      db.exec('INSERT INTO alocacoes_nova (id, item_id, destino, venda_id, quantidade, valor, obs, criado_em) SELECT id, item_id, destino, venda_id, quantidade, valor, obs, criado_em FROM alocacoes');
+      db.exec('DROP TABLE alocacoes');
+      db.exec('ALTER TABLE alocacoes_nova RENAME TO alocacoes');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_aloc_item ON alocacoes(item_id); CREATE INDEX IF NOT EXISTS idx_aloc_venda ON alocacoes(venda_id);');
+    })();
+  } finally { db.pragma('foreign_keys = ON'); }
 }
 
 export function lerConfig(db) {
@@ -102,6 +135,7 @@ export function lerConfig(db) {
     variacaoPrecoPct: Number(cfg.variacao_preco_pct),
     diasNotaSemDestino: Number(cfg.dias_nota_sem_destino),
     diasNotaSemBoleto: Number(cfg.dias_nota_sem_boleto),
+    diasDevolucaoAdiantamento: Number(cfg.dias_devolucao_adiantamento || 30),
   };
 }
 
@@ -113,6 +147,7 @@ export function gravarConfig(db, parcial) {
     diasTrava: 'dias_trava', pctAvisoLimite: 'pct_aviso_limite', margemContribuicaoPct: 'margem_contribuicao_pct',
     cnpjOficina: 'cnpj_oficina', auditoriaDesde: 'auditoria_desde', toleranciaValor: 'tolerancia_valor',
     variacaoPrecoPct: 'variacao_preco_pct', diasNotaSemDestino: 'dias_nota_sem_destino', diasNotaSemBoleto: 'dias_nota_sem_boleto',
+    diasDevolucaoAdiantamento: 'dias_devolucao_adiantamento',
   };
   const up = db.prepare('INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor');
   db.transaction(() => {

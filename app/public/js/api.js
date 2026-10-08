@@ -1,4 +1,7 @@
 let aoPrecisarLogin = () => {};
+// quem está usando: "dono" faz tudo; "lancamento" só cadastra notas e boletos (o servidor é quem barra, a tela só esconde o que não vale)
+export const sessao = { perfil: 'dono' };
+export const ehDono = () => sessao.perfil === 'dono';
 export const definirLogin = (fn) => { aoPrecisarLogin = fn; };
 
 export async function api(metodo, caminho, corpo) {

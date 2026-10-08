@@ -1,13 +1,18 @@
 // Janelas da área de Compras: boleto, nota, aplicar peça em OS, fornecedor, pagamento com trava.
 import { h, brl, brl0, dataBR, selo, vazio, toast, modal, atualizarModal, acao, campo, entrada, selecao, lerForm, confirmar, montar, cnpjBR, numBR as num, paraCampo } from '../ui.js';
 import { escolherItemLivre } from './vendas.js';
-import { GET, POST, PUT, DEL } from '../api.js';
+import { GET, POST, PUT, DEL, ehDono } from '../api.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const ROTULO_SEV = { alta: 'GRAVE', media: 'conferir', baixa: 'detalhe' };
 const TIPO_SEV = { alta: 'critico', media: 'aviso', baixa: 'info' };
-const DESTINOS = { estoque: 'Estoque', uso_interno: 'Uso interno', devolvido: 'Devolvida ao fornecedor', os: 'OS' };
+const DESTINOS = { estoque: 'Estoque', uso_interno: 'Uso interno', devolvido: 'Devolvida ao fornecedor', os: 'OS', outra_empresa: 'Outra empresa do grupo' };
+const ROTULO_PERFIL = { dono: 'dono', lancamento: 'quem lança' };
 const dataHoraBR = (s) => (s ? `${dataBR(s.slice(0, 10))} ${s.slice(11, 16)}` : '');
+// Consulta resumida da NF-e no portal nacional (pede a chave e um captcha; mostra situação e valor)
+const URL_PORTAL_NFE = 'https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=';
+const SIT_CONSULTA = [['autorizada', 'Autorizada (uso autorizado)'], ['cancelada', 'Cancelada'], ['denegada', 'Denegada'], ['nao_encontrada', 'NÃO encontrada']];
+const MENSAGEM_PEDIR_XML = 'Olá! Aqui é da Multmec. A partir de agora, toda nota fiscal que vocês emitirem para nós precisa vir acompanhada do arquivo XML da NF-e, enviado pelo mesmo canal em que mandam o boleto. Também pedimos que, no pedido, conste o número da nossa OS ou a placa do veículo (no campo "Pedido" ou em "Informações adicionais" da nota), para conferirmos cada peça. Boleto que não bater com uma nota nossa será devolvido. Obrigado!';
 const MENSAGEM_PADRAO = 'Cole a linha digitável (47 números), o código de barras (44) ou o texto inteiro do boleto copiado do PDF.';
 
 export const chipSev = (sev) => selo(ROTULO_SEV[sev] ?? sev, TIPO_SEV[sev] ?? 'neutro');
@@ -28,7 +33,7 @@ export function listaOcorrencias(lista, aoMudar, { mostrarAcoes = true } = {}) {
       o.tipo === 'os_sem_nota' ? h('button', { class: 'pequeno primario', onclick: acao(() => modalOsSemNota(aoMudar)) }, 'Ver as OS') : null,
       o.tipo === 'custo_os_diverge' ? h('button', { class: 'pequeno', onclick: acao(async () => { await POST(`/compras/os/${o.id}/usar-custo-das-notas`, {}); toast('Custo da OS agora vem das notas.'); aoMudar(); }) }, 'Usar o custo das notas') : null,
       (o.tipo === 'boleto_sem_beneficiario' || o.tipo === 'boleto_sem_pagador') && o.boletos?.[0] ? h('button', { class: 'pequeno primario', onclick: acao(() => modalBoleto(o.boletos[0], aoMudar, { informar: true })) }, 'Informar') : null,
-      h('button', { class: 'pequeno', onclick: () => modalAceitar(o, aoMudar) }, 'Conferi, está certo')) : null)));
+      ehDono() ? h('button', { class: 'pequeno', onclick: () => modalAceitar(o, aoMudar) }, 'Conferi, está certo') : h('small', { class: 'dica' }, 'Só o dono aceita uma ocorrência.')) : null)));
 }
 
 export function modalAceitar(o, aoMudar) {
@@ -52,8 +57,23 @@ export function modalAceitar(o, aoMudar) {
  * Pagamento com trava. Chama `executar(extra)`; o servidor trava se (1) ninguém conferiu no app do banco quem recebe, ou
  * (2) há ocorrência grave. Aqui a pessoa confirma uma coisa ou outra, ou libera com motivo.
  */
-export async function pagarComTrava(executar, aoFim, { fornecedor = null } = {}) {
-  try { await executar({}); toast('Pago.'); aoFim(); } catch (e) {
+export function pagarComTrava(executar, aoFim, opcoes = {}) {
+  // boleto de outra empresa do grupo: primeiro se decide de quem sai o dinheiro
+  if (opcoes.empresa) { perguntarQuemPaga(opcoes.empresa, (pagoPor) => tentarPagar(executar, aoFim, opcoes, { pagoPor })); return Promise.resolve(); }
+  return tentarPagar(executar, aoFim, opcoes, {});
+}
+
+function perguntarQuemPaga(empresa, aoEscolher) {
+  modal('Quem está pagando?', (fechar) => h('div', { class: 'formulario' },
+    h('div', { class: 'veredito atencao' }, `Este boleto é da ${empresa}, não da oficina.`),
+    h('button', { class: 'grande primario', onclick: () => { fechar(); aoEscolher('oficina'); } }, 'A oficina paga'),
+    h('p', { class: 'dica' }, `O dinheiro sai da conta da oficina e o valor fica A RECEBER da ${empresa} (Compras > Grupo).`),
+    h('button', { class: 'grande', onclick: () => { fechar(); aoEscolher('empresa'); } }, `A ${empresa} paga`),
+    h('p', { class: 'dica' }, 'O dinheiro sai da conta dela. Aqui só fica registrado que foi pago; nada muda no caixa da oficina.')));
+}
+
+async function tentarPagar(executar, aoFim, { fornecedor = null }, base) {
+  try { await executar(base); toast('Pago.'); aoFim(); } catch (e) {
     if (e.status !== 409) { toast(e.message, true); return; }
     const ocs = e.dados?.ocorrencias ?? [];
     const confira = ocs.find((o) => o.tipo === 'confira_recebedor');
@@ -72,7 +92,7 @@ export async function pagarComTrava(executar, aoFim, { fornecedor = null } = {})
         ev.preventDefault();
         if (confira && !conferi.checked && !graves.length) { toast('Marque que conferiu o recebedor no app do banco.', true); return; }
         if (graves.length && String(motivo.value).trim().length < 10) { toast('Explique o motivo (pelo menos 10 letras).', true); return; }
-        await executar({ conferiuBanco: conferi.checked, ...(graves.length ? { aprovar: true, motivo: motivo.value } : {}) });
+        await executar({ ...base, conferiuBanco: conferi.checked, ...(graves.length ? { aprovar: true, motivo: motivo.value } : {}) });
         toast(graves.length ? 'Pago, com ressalva registrada.' : 'Pago.'); fechar(); aoFim();
       }));
       return f;
@@ -141,6 +161,7 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
   const montarCorpo = async (fechar, corpo) => {
     const d = await GET(`/compras/boletos/${id}`);
     const b = d.boleto;
+    const dono = ehDono();
     const atualizar = acao(async () => { await montarCorpo(fechar, corpo); aoMudar(); });
     const conteudo = h('div', null,
       faixaVeredito(d.veredito),
@@ -150,6 +171,8 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
         h('dt', null, 'Situação'), h('dd', null, b.situacao), h('dt', null, 'Nº do documento'), h('dd', null, b.numero_documento ?? '—'),
         h('dt', null, 'Recebe (CNPJ)'), h('dd', null, b.beneficiario_cnpj ? cnpjBR(b.beneficiario_cnpj) : 'não informado'),
         h('dt', null, 'Paga (CNPJ)'), h('dd', null, b.pagador_cnpj ? cnpjBR(b.pagador_cnpj) : 'não informado'),
+        b.empresa_nome ? [h('dt', null, 'Boleto de'), h('dd', null, `${b.empresa_nome} (outra empresa do grupo, fora das contas da oficina)`)] : null,
+        b.criado_por ? [h('dt', null, 'Cadastrado por'), h('dd', null, ROTULO_PERFIL[b.criado_por] ?? b.criado_por)] : null,
         h('dt', null, 'Banco'), h('dd', null, b.banco_nome ?? b.banco ?? '—'),
         b.conferido_banco_em ? [h('dt', null, 'Recebedor conferido no banco'), h('dd', null, dataBR(b.conferido_banco_em))] : null),
       b.linha_digitavel ? h('p', { class: 'dica mono' }, b.linha_digitavel) : null,
@@ -159,7 +182,7 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
       d.rastro?.length ? [h('h3', null, 'Para onde foi o dinheiro deste boleto'),
         d.rastro.map((r) => h('div', { class: 'item-nota' },
           h('div', { class: 'item-nota-topo' }, h('b', null, `Nota ${r.nota}`), h('span', null, `este boleto paga ${brl(r.pago_por_este_boleto)} de ${brl(r.nota_total)}`)),
-          r.destinos.length ? r.destinos.map((x) => h('div', { class: 'aloc' }, h('span', null, `${x.item} → ${x.destino === 'os' ? `OS ${x.os ?? ''} ${x.placa ?? ''}` : DESTINOS[x.destino]}`), h('b', null, brl(x.valor)))) : h('p', { class: 'dica' }, 'Nenhuma peça desta nota foi ligada a uma OS ainda.'),
+          r.destinos.length ? r.destinos.map((x) => h('div', { class: 'aloc' }, h('span', null, `${x.item} → ${x.destino === 'os' ? `OS ${x.os ?? ''} ${x.placa ?? ''}` : (x.destino === 'outra_empresa' ? `${x.empresa ?? 'outra empresa'}` : DESTINOS[x.destino])}`), h('b', null, brl(x.valor)))) : h('p', { class: 'dica' }, 'Nenhuma peça desta nota foi ligada a uma OS ainda.'),
           r.sem_destino > 0.04 ? h('p', { class: 'ruim' }, `Sem destino: ${brl(r.sem_destino)}`) : null))] : null,
       h('h3', null, 'Notas ligadas'),
       d.conciliacoes.length ? d.conciliacoes.map((c) => h('div', { class: 'linha-simples' },
@@ -172,10 +195,12 @@ export async function modalBoleto(id, aoMudar, { informar = false } = {}) {
       h('h3', null, 'Conferência'),
       listaOcorrencias(d.ocorrencias.filter((o) => !o.aceita), () => atualizar({ currentTarget: null })),
       h('div', { class: 'botoes' },
-        b.situacao === 'aberto' ? h('button', { class: 'primario', onclick: acao(() => pagarComTrava((extra) => POST(`/compras/boletos/${id}/pagar`, extra), () => atualizar({ currentTarget: null }), { fornecedor: b.fornecedor })) }, 'Marcar como pago') : null,
-        b.situacao === 'aberto' ? h('button', { onclick: () => modalMotivo('Contestar o boleto', 'Por que está contestando? (fica anotado no boleto)', 'ex.: cobrança sem nota fiscal', async (motivo) => { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'contestado', motivo }); toast('Boleto marcado como contestado. Não pague.'); atualizar({ currentTarget: null }); }) }, 'Contestar') : null,
-        b.situacao === 'contestado' || b.situacao === 'cancelado' ? h('button', { class: 'primario', onclick: acao(async () => { await POST(`/compras/boletos/${id}/reabrir`, {}); toast('Boleto reaberto.'); await atualizar({ currentTarget: null }); }) }, 'Reabrir boleto') : null,
-        b.situacao === 'aberto' ? h('button', { class: 'perigo', onclick: acao(async () => { if (confirmar('Cancelar este boleto? A conta a pagar ligada também sai.')) { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'cancelado' }); toast('Boleto cancelado.'); fechar(); aoMudar(); } }) }, 'Cancelar boleto') : null),
+        dono && b.situacao === 'aberto' ? h('button', { class: 'primario', onclick: acao(() => pagarComTrava((extra) => POST(`/compras/boletos/${id}/pagar`, extra), () => atualizar({ currentTarget: null }), { fornecedor: b.fornecedor, empresa: b.empresa_nome })) }, 'Marcar como pago') : null,
+        dono && b.situacao === 'aberto' ? h('button', { onclick: () => modalMotivo('Contestar o boleto', 'Por que está contestando? (fica anotado no boleto)', 'ex.: cobrança sem nota fiscal', async (motivo) => { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'contestado', motivo }); toast('Boleto marcado como contestado. Não pague.'); atualizar({ currentTarget: null }); }) }, 'Contestar') : null,
+        dono && (b.situacao === 'contestado' || b.situacao === 'cancelado') ? h('button', { class: 'primario', onclick: acao(async () => { await POST(`/compras/boletos/${id}/reabrir`, {}); toast('Boleto reaberto.'); await atualizar({ currentTarget: null }); }) }, 'Reabrir boleto') : null,
+        dono && b.situacao === 'pago' ? h('button', { onclick: acao(async () => { if (!confirmar('Desfazer o pagamento deste boleto? Ele volta a ficar em aberto.')) return; await POST(`/compras/boletos/${id}/desfazer-pagamento`, {}); toast('Pagamento desfeito.'); await atualizar({ currentTarget: null }); }) }, 'Desfazer pagamento') : null,
+        b.situacao === 'aberto' && (dono || b.criado_por === 'lancamento') ? h('button', { class: 'perigo', onclick: acao(async () => { if (confirmar('Cancelar este boleto? A conta a pagar ligada também sai.')) { await POST(`/compras/boletos/${id}/cancelar`, { situacao: 'cancelado' }); toast('Boleto cancelado.'); fechar(); aoMudar(); } }) }, 'Cancelar boleto') : null),
+      !dono && b.situacao === 'aberto' ? h('p', { class: 'dica' }, 'Quem paga é o dono. Cadastre a nota, informe quem recebe e quem paga, e avise o dono quando estiver conferido.') : null,
       d.historico?.length ? [h('h3', null, 'Histórico'), h('div', { class: 'historico' }, d.historico.map((x) => h('div', null, `${dataHoraBR(x.em)} · ${x.acao}${x.detalhe ? ` · ${x.detalhe.slice(0, 120)}` : ''}`)))] : null);
     atualizarModal(fechar, conteudo);
   };
@@ -216,9 +241,9 @@ async function modalEscolherNota(b, aoMudar) {
   } }, h('div', null, h('b', null, `Nota ${n.numero} · ${n.fornecedor}`)), h('div', { class: 'sub' }, `${dataBR(n.data_emissao)} · ${brl(n.valor_total)} · sem boleto ${brl(n.saldo)}`))).concat(notas.length ? [] : [vazio('Nenhuma nota para escolher.')])));
 }
 
-export async function modalNovoBoleto(aoMudar) {
+export async function modalNovoBoleto(aoMudar, inicial = {}) {
   const forn = await GET('/compras/fornecedores');
-  const cfg = await GET('/config');
+  const cfg = { cnpjOficina: (await GET('/compras/resumo')).cnpjOficinaConfigurado };
   modal('Novo boleto', (fechar) => {
     const leitura = h('div', { class: 'resumo-os' }, MENSAGEM_PADRAO);
     const linha = h('textarea', { name: 'linha', rows: 2, placeholder: '34191.79001 01043.510047 91020.150008 5 87560026000', inputmode: 'numeric', autocomplete: 'off' });
@@ -251,11 +276,14 @@ export async function modalNovoBoleto(aoMudar) {
     const benefCampo = entrada('beneficiarioCnpj', '', { inputmode: 'text', placeholder: '00.000.000/0000-00' });
     const pagCampo = entrada('pagadorCnpj', '', { inputmode: 'text', placeholder: 'o que está impresso como pagador' });
     const novoNome = entrada('fornecedorNome', '', { placeholder: 'nome do novo fornecedor' });
-    const sel = selecao('fornecedorId', [['', 'Escolha o fornecedor'], ...forn.filter((f) => f.ativo).map((f) => [f.id, `${f.nome}${f.principal ? ' (principal)' : ''}`]), ['novo', '+ Outro fornecedor…']], '');
+    const doCnpj = inicial.beneficiarioCnpj ? forn.find((f) => f.cnpj === inicial.beneficiarioCnpj) : null;
+    const sel = selecao('fornecedorId', [['', 'Escolha o fornecedor'], ...forn.filter((f) => f.ativo).map((f) => [f.id, `${f.nome}${f.principal ? ' (principal)' : ''}`]), ['novo', '+ Outro fornecedor…']], doCnpj?.id ?? (inicial.beneficiarioNome && !doCnpj ? 'novo' : ''));
+    if (inicial.beneficiarioNome && !doCnpj) novoNome.value = inicial.beneficiarioNome;
     const campoNovo = campo('Nome do novo fornecedor', novoNome);
-    campoNovo.hidden = true;
+    campoNovo.hidden = sel.value !== 'novo';
     sel.addEventListener('change', () => { campoNovo.hidden = sel.value !== 'novo'; });
     const f = h('form', { class: 'formulario' },
+      inicial.linha ? h('div', { class: 'dica' }, 'Dados trazidos do DDA do banco. Escolha o fornecedor e cadastre; depois ligue à nota fiscal.') : null,
       campo('Linha digitável, código de barras ou texto do boleto', linha), leitura,
       campo('Fornecedor', sel), campoNovo,
       h('div', { class: 'duas' }, campo('Valor', valor), campo('Vencimento', venc)),
@@ -279,6 +307,10 @@ export async function modalNovoBoleto(aoMudar) {
         if (err.dados?.boleto_id) { toast(err.message, true); fechar(); modalBoleto(err.dados.boleto_id, aoMudar); } else toast(err.message, true);
       }
     });
+    if (inicial.linha) { linha.value = inicial.linha; ler(); }
+    if (inicial.beneficiarioCnpj) benefCampo.value = cnpjBR(inicial.beneficiarioCnpj);
+    if (inicial.pagadorCnpj) pagCampo.value = cnpjBR(inicial.pagadorCnpj);
+    if (inicial.numeroDocumento) docCampo.value = inicial.numeroDocumento;
     return f;
   });
 }
@@ -305,15 +337,19 @@ export async function modalNota(id, aoMudar) {
     const n = d.nota;
     const recarregar = () => { montarCorpo(fechar).then(aoMudar).catch((e) => toast(e.message, true)); };
     const comProva = n.origem === 'xml' && ['100', '150'].includes(n.protocolo_status);
+    const provaPorConsulta = !comProva && n.consulta_situacao === 'autorizada' && n.consulta_por === 'dono' && Math.abs((n.consulta_valor ?? 0) - n.valor_total) <= 0.05;
     atualizarModal(fechar, h('div', null,
       h('dl', { class: 'detalhe' },
         h('dt', null, 'Emissão'), h('dd', null, dataBR(n.data_emissao)), h('dt', null, 'Valor da nota'), h('dd', null, brl(n.valor_total)),
         n.valor_com_tributos ? [h('dt', null, 'Com tributos por fora'), h('dd', null, brl(n.valor_com_tributos))] : null,
         h('dt', null, 'Ligado a boletos'), h('dd', null, brl(n.conciliado)), h('dt', null, 'Falta boleto'), h('dd', { class: n.saldo > 0.05 ? 'ruim' : '' }, brl(n.saldo)),
-        h('dt', null, 'Destinatário'), h('dd', null, n.cnpj_destinatario ? cnpjBR(n.cnpj_destinatario) : '—'), h('dt', null, 'Situação'), h('dd', null, n.situacao),
-        h('dt', null, 'Prova'), h('dd', { class: comProva ? '' : 'aviso-texto' }, comProva ? 'XML com protocolo de autorização (confirme no portal se for valor alto)' : (n.origem === 'manual' ? 'digitada à mão: não prova nada' : 'XML sem protocolo de autorização')),
+        h('dt', null, 'Destinatário'), h('dd', null, n.cnpj_destinatario ? cnpjBR(n.cnpj_destinatario) : '—'),
+        n.empresa ? [h('dt', null, 'Em nome de'), h('dd', null, `${n.empresa} (outra empresa do grupo)`)] : null,
+        h('dt', null, 'Situação'), h('dd', null, n.situacao),
+        h('dt', null, 'Prova'), h('dd', { class: comProva || provaPorConsulta ? '' : 'aviso-texto' }, comProva ? 'XML com protocolo de autorização (confirme no portal se for valor alto)' : (provaPorConsulta ? `consulta no portal feita pelo dono em ${dataBR(n.consulta_em)}: autorizada, ${brl(n.consulta_valor)}` : (n.origem === 'manual' ? 'digitada à mão: ainda não prova nada' : 'XML sem protocolo de autorização'))),
         n.natureza ? [h('dt', null, 'Natureza'), h('dd', null, n.natureza)] : null),
       n.chave ? h('p', { class: 'dica mono' }, `Chave: ${n.chave}`) : h('p', { class: 'aviso-texto' }, 'Nota digitada sem chave de acesso.'),
+      comProva ? null : blocoConsulta(n, id, recarregar),
       d.nota.tem_xml ? h('p', null, h('a', { class: 'botao', href: `/api/compras/notas/${id}/xml`, download: '' }, 'Baixar o XML guardado')) : null,
       n.info_compl ? h('p', { class: 'dica' }, `Informações da nota: ${n.info_compl}`) : null,
       d.duplicatas.length ? [h('h3', null, 'Parcelas'), h('div', { class: 'rolagem' }, h('table', { class: 'tabela' }, h('thead', null, h('tr', null, ['Vence', 'Valor', 'Sem boleto'].map((c) => h('th', null, c)))),
@@ -327,21 +363,84 @@ export async function modalNota(id, aoMudar) {
         d.sugestoes_os.some((s) => !s.ambigua) ? h('div', { class: 'botoes' }, h('button', { class: 'pequeno primario', onclick: acao(async () => { await POST(`/compras/notas/${id}/aplicar-sugestoes`, { itens: d.sugestoes_os.filter((s) => !s.ambigua).map((s) => ({ item_id: s.item_id, venda_id: s.venda_id })) }); toast('Sugestões aplicadas.'); recarregar(); }) }, 'Aplicar sugestões')) : null) : null,
       d.itens.map((i) => h('div', { class: 'item-nota' },
         h('div', { class: 'item-nota-topo' }, h('b', null, i.descricao), h('span', null, `${i.quantidade} × · ${brl(i.custo_total)}`)),
-        i.alocacoes.map((a) => h('div', { class: 'aloc' }, h('span', null, a.destino === 'os' ? `OS ${a.os ?? ''} ${a.placa ?? ''} · ${a.quantidade} · ${brl(a.valor)}` : `${DESTINOS[a.destino]} · ${a.quantidade} · ${brl(a.valor)}`),
+        i.alocacoes.map((a) => h('div', { class: 'aloc' }, h('span', null, a.destino === 'os' ? `OS ${a.os ?? ''} ${a.placa ?? ''} · ${a.quantidade} · ${brl(a.valor)}` : `${a.destino === 'outra_empresa' ? (a.empresa ?? 'Outra empresa') : DESTINOS[a.destino]} · ${a.quantidade} · ${brl(a.valor)}`),
           h('button', { class: 'icone pequeno', 'aria-label': 'Remover destino', onclick: acao(async () => { await DEL(`/compras/alocacoes/${a.id}`); toast('Destino removido.'); recarregar(); }) }, '×'))),
         i.restante > 1e-6 ? h('div', { class: 'botoes' },
           h('span', { class: 'ruim' }, `Sem destino: ${i.restante} (${brl(i.restante_valor)})`),
           h('button', { class: 'pequeno primario', onclick: () => modalAplicarEmOs({ ...i, dataNota: n.data_emissao }, recarregar) }, 'Aplicar em OS…'),
-          ['estoque', 'uso_interno', 'devolvido'].map((dst) => h('button', { class: 'pequeno', onclick: acao(async () => { await POST(`/compras/itens/${i.id}/alocar`, { destino: dst }); toast(`Destino: ${DESTINOS[dst]} (${brl(i.restante_valor)}).`); recarregar(); }) }, DESTINOS[dst]))) : null)),
+          ['estoque', 'uso_interno', 'devolvido'].map((dst) => h('button', { class: 'pequeno', onclick: acao(async () => { await POST(`/compras/itens/${i.id}/alocar`, { destino: dst }); toast(`Destino: ${DESTINOS[dst]} (${brl(i.restante_valor)}).`); recarregar(); }) }, DESTINOS[dst])),
+          h('button', { class: 'pequeno', onclick: acao(() => escolherEmpresaDestino(i, n, recarregar)) }, 'Outra empresa…')) : null)),
       d.itens.some((i) => i.restante > 1e-6) ? h('div', { class: 'botoes' }, h('button', { onclick: () => modalNotaTodaNaOs(id, recarregar) }, 'Toda a nota em uma OS…')) : null,
       h('h3', null, 'Conferência'),
       listaOcorrencias(d.ocorrencias.filter((o) => !o.aceita), recarregar),
-      h('div', { class: 'botoes' },
+      ehDono() ? h('div', { class: 'botoes' },
         n.cancelada_por !== 'sefaz' ? h('button', { class: 'pequeno', onclick: () => modalMotivo(n.situacao === 'ativa' ? 'Marcar nota como cancelada' : 'Reativar nota', 'Por quê?', 'ex.: fornecedor avisou que cancelou', async (motivo) => { await PUT(`/compras/notas/${id}`, { situacao: n.situacao === 'ativa' ? 'cancelada' : 'ativa', obs: motivo }); toast('Registrado.'); recarregar(); }) }, n.situacao === 'ativa' ? 'Marcar como cancelada' : 'Reativar nota') : h('span', { class: 'dica' }, 'Cancelada pela SEFAZ'),
-        h('button', { class: 'pequeno perigo', onclick: acao(async () => { if (confirmar('Apagar esta nota? Fica registrado no histórico.')) { await DEL(`/compras/notas/${id}`); toast('Nota apagada.'); fechar(); aoMudar(); } }) }, 'Apagar'))));
+        h('button', { class: 'pequeno perigo', onclick: acao(async () => { if (confirmar('Apagar esta nota? Fica registrado no histórico.')) { await DEL(`/compras/notas/${id}`); toast('Nota apagada.'); fechar(); aoMudar(); } }) }, 'Apagar')) : null));
   };
   const fechar = modal('Nota fiscal', () => h('p', { class: 'vazio' }, 'Carregando…'));
   try { await montarCorpo(fechar); } catch (e) { fechar(); throw e; }
+}
+
+/**
+ * Nota sem XML: a prova é consultar a chave no portal da NF-e e registrar o que ele mostrou.
+ * Quem lança consulta e registra; só a consulta do DONO (o mesmo que paga) vale como prova.
+ */
+function blocoConsulta(n, id, recarregar) {
+  if (!n.chave) return formChave(n, id, recarregar);
+  const dono = ehDono();
+  const sit = n.consulta_situacao;
+  const confere = sit === 'autorizada' && Math.abs((n.consulta_valor ?? 0) - n.valor_total) <= 0.05;
+  return h('div', { class: 'resumo-os' },
+    h('b', null, 'Comprovar esta nota sem XML'),
+    h('ol', { class: 'passos' },
+      h('li', null, 'Abra o portal da NF-e, cole a chave e resolva o captcha.'),
+      h('li', null, 'Leia a situação e o "Valor total da nota" que o portal mostra.'),
+      h('li', null, 'Registre abaixo. Se for diferente do que foi digitado, a nota não vale.')),
+    h('div', { class: 'botoes' },
+      h('a', { class: 'botao', href: URL_PORTAL_NFE, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir o portal da NF-e'),
+      h('button', { type: 'button', onclick: acao(async () => { await navigator.clipboard.writeText(n.chave); toast('Chave copiada.'); }) }, 'Copiar a chave')),
+    sit ? h('p', { class: confere && n.consulta_por === 'dono' ? 'bom' : 'aviso-texto' },
+      `Última consulta: ${dataBR(n.consulta_em)}, por ${ROTULO_PERFIL[n.consulta_por] ?? n.consulta_por}: ${SIT_CONSULTA.find(([v]) => v === sit)?.[1] ?? sit}${n.consulta_valor ? `, ${brl(n.consulta_valor)}` : ''}.${sit === 'autorizada' && !confere ? ' O valor NÃO bate com a nota.' : ''}${confere && n.consulta_por !== 'dono' ? ' Falta o dono repetir a consulta.' : ''}`) : null,
+    formConsulta(n, id, recarregar),
+    dono ? null : h('p', { class: 'dica' }, 'A consulta de quem lança ajuda, mas só vale como prova depois que o dono repetir e registrar a dele.'));
+}
+
+function formConsulta(n, id, recarregar) {
+  const f = h('form', { class: 'formulario' },
+    h('div', { class: 'duas' }, campo('O que o portal mostrou', selecao('situacao', SIT_CONSULTA, n.consulta_situacao ?? 'autorizada')),
+      campo('Valor total da nota no portal', entrada('valor', n.consulta_valor ? paraCampo(n.consulta_valor) : '', { inputmode: 'decimal', placeholder: 'ex.: 1.050,00' }))),
+    h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Registrar a consulta')));
+  f.addEventListener('submit', acao(async (e) => {
+    e.preventDefault();
+    const d = lerForm(f);
+    const valor = num(d.valor);
+    if (d.situacao === 'autorizada' && !(valor > 0)) { toast('Informe o valor total que o portal mostrou.', true); return; }
+    const r = await POST(`/compras/notas/${id}/consulta`, { situacao: d.situacao, valor: d.situacao === 'autorizada' ? valor : null });
+    toast(r.confere ? 'Consulta registrada: o valor bate com a nota.' : (d.situacao === 'autorizada' ? 'Registrado, mas o valor NÃO bate com a nota.' : 'Consulta registrada.'), d.situacao !== 'autorizada' || !r.confere);
+    recarregar();
+  }));
+  return f;
+}
+
+function formChave(n, id, recarregar) {
+  const f = h('form', { class: 'formulario' },
+    h('p', { class: 'aviso-texto' }, 'Esta nota foi digitada sem a chave de acesso. Sem a chave não dá para consultar o portal. A chave tem 44 números e fica na DANFE, embaixo do código de barras.'),
+    campo('Chave de acesso (44 números)', entrada('chave', '', { inputmode: 'numeric', required: true })),
+    h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Informar a chave')));
+  f.addEventListener('submit', acao(async (e) => { e.preventDefault(); await POST(`/compras/notas/${id}/chave`, { chave: lerForm(f).chave }); toast('Chave conferida e salva.'); recarregar(); }));
+  void n;
+  return f;
+}
+
+/** Peça que ficou com outra empresa do grupo (locadora, oficina do sócio): escolhe a empresa. Se a nota é da oficina, o custo fica a receber dela. */
+async function escolherEmpresaDestino(item, nota, aoMudar) {
+  const empresas = (await GET('/compras/empresas')).filter((e) => e.ativo);
+  modal('Peça entregue a qual empresa?', (fechar) => h('div', { class: 'formulario' },
+    empresas.length ? [
+      h('p', { class: 'dica' }, nota.empresa ? `A nota já está em nome da ${nota.empresa}: não gera valor a receber.` : `Nota da oficina: o custo (${brl(item.restante_valor)}) fica A RECEBER da empresa escolhida, em Compras > Grupo.`),
+      h('div', { class: 'lista' }, empresas.map((e) => h('button', { class: 'linha-os', onclick: acao(async () => { await POST(`/compras/itens/${item.id}/alocar`, { destino: 'outra_empresa', empresaId: e.id }); toast(`Peça entregue à ${e.nome}.`); fechar(); aoMudar(); }) },
+        h('div', null, h('b', null, e.nome)), h('div', { class: 'sub' }, e.papel_rotulo))))]
+      : vazio('Nenhuma empresa do grupo cadastrada. O dono cadastra em Compras > Grupo.')));
 }
 
 function modalNotaTodaNaOs(notaId, aoMudar) {
@@ -364,7 +463,7 @@ function modalNotaTodaNaOs(notaId, aoMudar) {
 
 export async function modalNotaManual(aoMudar) {
   const forn = await GET('/compras/fornecedores');
-  modal('Nota lançada à mão', (fechar) => {
+  modal('Nota sem XML (tenho a DANFE)', (fechar) => {
     const parcelas = h('div', { class: 'lista' });
     const addParcela = () => parcelas.append(h('div', { class: 'duas' }, entrada('pvenc', '', { type: 'date' }), entrada('pvalor', '', { inputmode: 'decimal', placeholder: 'valor da parcela' })));
     addParcela();
@@ -373,12 +472,42 @@ export async function modalNotaManual(aoMudar) {
     const campoNovo = campo('Nome do novo fornecedor', novoNome);
     campoNovo.hidden = true;
     sel.addEventListener('change', () => { campoNovo.hidden = sel.value !== 'novo'; });
+    const numero = entrada('numero', '', { required: true, inputmode: 'numeric' });
+    const serie = entrada('serie', '', { inputmode: 'numeric' });
+    const dataEmissao = entrada('dataEmissao', hojeISO(), { type: 'date', required: true });
+    const valorTotal = entrada('valorTotal', '', { inputmode: 'decimal', required: true });
+    const chaveCampo = entrada('chave', '', { inputmode: 'numeric' });
+    const destCampo = entrada('cnpjDestinatario', '', { inputmode: 'text', placeholder: '00.000.000/0000-00' });
+    const leitura = h('div', { class: 'resumo-os' }, 'Cole abaixo o texto copiado do PDF da DANFE (ou só a chave de 44 números) e toque em "Ler". O sistema preenche o que conseguir; você confere com a nota na mão.');
+    const texto = h('textarea', { name: 'texto', rows: 4, placeholder: 'Texto da DANFE ou chave de acesso…', autocomplete: 'off' });
+    const ler = acao(async () => {
+      const r = await POST('/compras/notas/ler-danfe', { texto: texto.value });
+      const avisos = r.avisos ?? [];
+      if (r.ok) {
+        chaveCampo.value = r.chave;
+        numero.value = r.numero; serie.value = r.serie === '0' ? '' : r.serie;
+        if (r.dataEmissao) dataEmissao.value = r.dataEmissao;
+        if (r.valorTotal) valorTotal.value = paraCampo(r.valorTotal);
+        if (r.destinatarioCnpj) destCampo.value = cnpjBR(r.destinatarioCnpj);
+        if (r.fornecedor) { sel.value = String(r.fornecedor.id); campoNovo.hidden = true; } else { sel.value = 'novo'; campoNovo.hidden = false; }
+      }
+      montar(leitura,
+        r.ok ? h('b', { class: 'bom' }, `Chave válida · nota ${r.numero}, série ${r.serie}, emitida em ${r.mesChave} · CNPJ do fornecedor ${cnpjBR(r.cnpjEmitente)}`) : null,
+        r.ok ? h('div', { class: r.fornecedor ? 'dica' : 'aviso-texto' }, r.fornecedor ? `Fornecedor: ${r.fornecedor.nome}.` : 'Fornecedor novo: digite o nome. O CNPJ vem da chave.') : null,
+        r.empresaDestinatario ? h('div', { class: 'dica' }, `A nota está em nome da ${r.empresaDestinatario.nome} (empresa do grupo).`) : null,
+        r.notaExistente ? h('div', { class: 'ruim' }, `Esta nota já está cadastrada (nº ${r.notaExistente.numero}).`) : null,
+        r.valoresPossiveis?.length > 1 ? h('div', { class: 'dica' }, 'Valores que apareceram no bloco de totais (o total da nota é o maior; confira): ', r.valoresPossiveis.map((v) => h('button', { type: 'button', class: 'pequeno', onclick: () => { valorTotal.value = paraCampo(v); } }, brl(v)))) : null,
+        avisos.map((a) => h('div', { class: 'aviso-texto' }, a)));
+    });
     const f = h('form', { class: 'formulario' },
-      h('p', { class: 'aviso-texto' }, 'Prefira importar o XML. Nota digitada não prova nada: um boleto ligado a ela continua com alerta grave até chegar o XML (ou até alguém conferir a chave no portal da NF-e).'),
+      h('p', { class: 'aviso-texto' }, 'Prefira o XML (Notas > Importar XML). Nota sem XML só passa a provar alguma coisa depois que a chave é consultada no portal da NF-e e o dono registra a consulta.'),
+      h('div', { class: 'dica' }, 'Dica: o contador recebe o XML de toda nota emitida contra o CNPJ da oficina. Peça a ele o pacote mensal e importe aqui: acaba a nota sem XML.'),
+      campo('Texto da DANFE ou chave de acesso', texto), h('div', { class: 'botoes' }, h('button', { type: 'button', onclick: ler }, 'Ler')), leitura,
       campo('Fornecedor', sel), campoNovo,
-      h('div', { class: 'duas' }, campo('Nº da nota', entrada('numero', '', { required: true, inputmode: 'numeric' })), campo('Série', entrada('serie', '', { inputmode: 'numeric' }))),
-      h('div', { class: 'duas' }, campo('Data de emissão', entrada('dataEmissao', hojeISO(), { type: 'date', required: true })), campo('Valor total', entrada('valorTotal', '', { inputmode: 'decimal', required: true }))),
-      campo('Chave de acesso (44 números, opcional)', entrada('chave', '', { inputmode: 'numeric' }), 'Se digitar, o sistema confere se bate com o fornecedor, o número, a série e o mês.'),
+      h('div', { class: 'duas' }, campo('Nº da nota', numero), campo('Série', serie)),
+      h('div', { class: 'duas' }, campo('Data de emissão', dataEmissao), campo('Valor total', valorTotal)),
+      campo('Chave de acesso (44 números)', chaveCampo, 'Se digitar, o sistema confere se bate com o fornecedor, o número, a série e o mês.'),
+      campo('CNPJ de quem comprou (destinatário da nota)', destCampo, 'Fica na DANFE em "Destinatário". Serve para saber se a nota é da oficina, da locadora ou de outro CNPJ.'),
       h('h3', null, 'Parcelas (se houver)'), parcelas,
       h('div', { class: 'botoes' }, h('button', { type: 'button', class: 'pequeno', onclick: addParcela }, '+ parcela'), h('button', { type: 'submit', class: 'primario' }, 'Salvar nota')));
     f.addEventListener('submit', acao(async (e) => {
@@ -387,9 +516,10 @@ export async function modalNotaManual(aoMudar) {
       const venc = [...f.querySelectorAll('[name=pvenc]')].map((x) => x.value);
       const vals = [...f.querySelectorAll('[name=pvalor]')].map((x) => x.value);
       const duplicatas = venc.map((v, i) => ({ vencimento: v, valor: num(vals[i]) })).filter((p) => p.vencimento && p.valor);
-      await POST('/compras/notas', { fornecedorId: d.fornecedorId && d.fornecedorId !== 'novo' ? Number(d.fornecedorId) : null, fornecedorNome: d.fornecedorId === 'novo' ? d.fornecedorNome : null,
-        numero: d.numero, serie: d.serie, dataEmissao: d.dataEmissao, valorTotal: num(d.valorTotal), chave: d.chave || null, duplicatas });
-      toast('Nota salva.'); fechar(); aoMudar();
+      const nota = await POST('/compras/notas', { fornecedorId: d.fornecedorId && d.fornecedorId !== 'novo' ? Number(d.fornecedorId) : null, fornecedorNome: d.fornecedorId === 'novo' ? d.fornecedorNome : null,
+        numero: d.numero, serie: d.serie, dataEmissao: d.dataEmissao, valorTotal: num(d.valorTotal), chave: d.chave || null, cnpjDestinatario: d.cnpjDestinatario || null, duplicatas });
+      toast('Nota salva. Agora consulte a chave no portal e registre.'); fechar(); aoMudar();
+      if (nota.nota_id) modalNota(nota.nota_id, aoMudar);
     }));
     return f;
   });
@@ -428,15 +558,16 @@ export function modalFornecedor(f0, aoMudar) {
     const form = h('form', { class: 'formulario' },
       campo('Nome', entrada('nome', f.nome, { required: true })),
       campo('CNPJ', entrada('cnpj', f.cnpj ? cnpjBR(f.cnpj) : '', { inputmode: 'text', placeholder: '00.000.000/0000-00' }), 'Com o CNPJ o sistema confere se o beneficiário do boleto é mesmo este fornecedor.'),
-      campo('Outros CNPJs que podem receber os boletos (opcional)', entrada('beneficiariosAutorizados', (f.beneficiarios_autorizados ?? '').split(',').filter(Boolean).map(cnpjBR).join(', '), { inputmode: 'text', placeholder: 'filial, banco ou factoring, separados por vírgula' }), 'Só cadastre depois de confirmar por telefone com o fornecedor. Sem isso, boleto em nome de outro CNPJ é tratado como grave.'),
-      h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'confirmado', checked: !!f.confirmado_em }), ' Conferi o CNPJ (cartão CNPJ) e o telefone deste fornecedor'),
+      !ehDono() ? h('p', { class: 'dica' }, 'Quem confirma o fornecedor (cartão CNPJ e telefone) e autoriza outros recebedores de boleto é o dono.') : null,
+      ehDono() ? campo('Outros CNPJs que podem receber os boletos (opcional)', entrada('beneficiariosAutorizados', (f.beneficiarios_autorizados ?? '').split(',').filter(Boolean).map(cnpjBR).join(', '), { inputmode: 'text', placeholder: 'filial, banco ou factoring, separados por vírgula' }), 'Só cadastre depois de confirmar por telefone com o fornecedor. Sem isso, boleto em nome de outro CNPJ é tratado como grave.') : null,
+      ehDono() ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'confirmado', checked: !!f.confirmado_em }), ' Conferi o CNPJ (cartão CNPJ) e o telefone deste fornecedor') : null,
       h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'principal', checked: !!f.principal }), ' Fornecedor principal'),
       f0 ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'ativo', checked: !!f.ativo }), ' Ativo') : null,
       h('div', { class: 'botoes' }, h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
     form.addEventListener('submit', acao(async (e) => {
       e.preventDefault();
       const d = lerForm(form);
-      const corpo = { nome: d.nome, cnpj: d.cnpj, principal: d.principal, beneficiariosAutorizados: d.beneficiariosAutorizados, confirmado: d.confirmado };
+      const corpo = { nome: d.nome, cnpj: d.cnpj, principal: d.principal, ...(ehDono() ? { beneficiariosAutorizados: d.beneficiariosAutorizados, confirmado: d.confirmado } : {}) };
       if (f0) corpo.ativo = d.ativo;
       if (f0) await PUT(`/compras/fornecedores/${f.id}`, corpo); else await POST('/compras/fornecedores', corpo);
       toast('Fornecedor salvo.'); fechar(); aoMudar();
@@ -455,6 +586,7 @@ export async function modalExtratoFornecedor(id, aoMudar) {
       h('div', null, h('span', null, 'Boletos em aberto'), h('b', null, brl0(t.boletosAbertos))),
       h('div', null, h('span', null, 'Boletos pagos'), h('b', null, brl0(t.boletosPagos))),
       h('div', null, h('span', null, 'Boletos SEM nota'), h('b', { class: t.boletosSemNota > 0 ? 'ruim' : 'bom' }, brl0(t.boletosSemNota)))),
+    h('div', { class: 'botoes' }, h('button', { class: 'pequeno', onclick: acao(async () => { await navigator.clipboard.writeText(MENSAGEM_PEDIR_XML); toast('Mensagem copiada. Cole no WhatsApp ou e-mail do fornecedor.'); }) }, 'Copiar mensagem pedindo o XML e o nº da OS')),
     h('h3', null, 'Boletos'),
     d.boletos.length ? d.boletos.slice(0, 30).map((b) => h('button', { class: 'linha-simples', onclick: acao(() => modalBoleto(b.id, aoMudar)) },
       h('span', null, `${dataBR(b.vencimento)} · ${brl(b.valor)}`), h('small', { class: b.ligacoes ? '' : 'ruim' }, `${b.situacao}${b.ligacoes ? '' : ' · sem nota'}`))) : vazio('Nenhum boleto.'),

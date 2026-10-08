@@ -6,12 +6,27 @@ import { formatarCnpj } from './documentos.js';
 import { ErroValidacao, motivoValido, MOTIVO_MINIMO } from './validar.js';
 import { ALOC_VALIDA, duplicatasComSaldo } from './compras.js';
 import { registrar } from './trilha.js';
+import { saldoDoAdiantamento } from './grupo.js';
+import { cruzarDda } from './dda.js';
 
 const reais = (v) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBR = (d) => (d ? d.split('-').reverse().join('/') : '');
 const raiz = (c) => String(c ?? '').slice(0, 8);
 const ORDEM = { alta: 0, media: 1, baixa: 2 };
 const AUTORIZADA = new Set(['100', '150']);
+/** A nota prova que existe quando tem protocolo de autorização no XML, ou quando alguém consultou a chave no portal e viu "autorizada" com o mesmo valor. */
+const provaDaNota = (c) => (c.nota_origem !== 'manual' && AUTORIZADA.has(String(c.nota_protocolo)))
+  || (c.consulta_situacao === 'autorizada' && c.consulta_por === 'dono' && c.consulta_valor !== null && Math.abs(c.consulta_valor - c.nota_total) <= 0.05);
+
+/** Por que a nota ainda não prova nada, em palavras que a pessoa sabe resolver. */
+function motivoSemProva(c) {
+  if (c.consulta_situacao === 'nao_encontrada') return `A chave da nota ${c.nota_numero} NÃO foi encontrada no portal da NF-e: a nota pode ser falsa ou a chave estar errada.`;
+  if (c.consulta_situacao === 'autorizada' && c.consulta_valor !== null && Math.abs(c.consulta_valor - c.nota_total) > 0.05) {
+    return `O portal mostrou R$ ${Number(c.consulta_valor).toFixed(2)} para a nota ${c.nota_numero}, mas ela foi digitada com R$ ${Number(c.nota_total).toFixed(2)}. Um dos dois está errado.`;
+  }
+  if (c.consulta_situacao === 'autorizada' && c.consulta_por !== 'dono') return `A nota ${c.nota_numero} foi consultada no portal por quem lança. Falta o dono repetir a consulta (leva um minuto) e registrar.`;
+  return `A nota ${c.nota_numero} foi digitada à mão ou o XML não traz protocolo de autorização, então não prova nada. Importe o XML autorizado ou consulte a chave no portal da NF-e e registre a consulta na nota.`;
+}
 const semZeros = (n) => String(n ?? '').replace(/\D/g, '').replace(/^0+/, '');
 
 export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
@@ -21,10 +36,13 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
   const add = (o) => out.push({ ...o, chave: `${o.tipo}:${o.entidade}:${o.id}`, estado: String(o.estado ?? ''), boletos: o.boletos ?? [], notas: o.notas ?? [] });
   const aceites = new Map(db.prepare('SELECT * FROM auditoria_aceites').all().map((a) => [a.chave, a]));
 
+  // empresas do mesmo grupo (locadora, oficina do sócio): CNPJ delas na nota ou no boleto não é golpe, mas também não é da oficina
+  const grupo = new Map(db.prepare('SELECT * FROM empresas_grupo WHERE ativo = 1').all().map((e) => [e.cnpj, e]));
+  const jaPagouAoFornecedor = new Set(db.prepare("SELECT DISTINCT fornecedor_id FROM boletos WHERE situacao = 'pago' AND fornecedor_id IS NOT NULL").all().map((x) => x.fornecedor_id));
   const boletos = db.prepare(`SELECT b.*, f.nome AS fornecedor, f.cnpj AS fornecedor_cnpj, f.beneficiarios_autorizados AS fornecedor_autorizados, f.confirmado_em AS fornecedor_confirmado
       FROM boletos b LEFT JOIN fornecedores f ON f.id = b.fornecedor_id WHERE b.situacao NOT IN ('cancelado','contestado')`).all();
   const concs = db.prepare(`SELECT c.*, n.numero AS nota_numero, n.fornecedor_id AS nota_fornecedor, n.origem AS nota_origem, n.cnpj_emitente, n.cnpj_destinatario, n.situacao AS nota_situacao,
-      n.protocolo_status AS nota_protocolo, n.cnpj_receb, n.valor_total AS nota_total, d.valor AS dup_valor, d.vencimento AS dup_venc
+      n.protocolo_status AS nota_protocolo, n.cnpj_receb, n.valor_total AS nota_total, n.consulta_situacao, n.consulta_valor, n.consulta_por, d.valor AS dup_valor, d.vencimento AS dup_venc
       FROM conciliacoes c JOIN notas_compra n ON n.id = c.nota_id LEFT JOIN nota_duplicatas d ON d.id = c.duplicata_id`).all();
   const porBoleto = new Map();
   const porNota = new Map();
@@ -79,11 +97,11 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
         }
       }
       // a nota que "explica" o boleto precisa ter prova: XML com protocolo de autorização. Nota digitada à mão ou XML sem protocolo não prova nada.
-      const semProva = cs.filter((c) => c.nota_origem === 'manual' || !AUTORIZADA.has(String(c.nota_protocolo)));
+      const semProva = cs.filter((c) => !provaDaNota(c));
       if (semProva.length) {
-        add({ tipo: 'boleto_nota_sem_prova', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: semProva.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: semProva.map((c) => c.nota_id).join(','),
+        add({ tipo: 'boleto_nota_sem_prova', severidade: 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], notas: semProva.map((c) => c.nota_id), valor: b.valor, data: b.vencimento, estado: semProva.map((c) => `${c.nota_id}:${c.consulta_situacao ?? ''}:${c.consulta_por ?? ''}:${c.consulta_valor ?? ''}`).join(','),
           titulo: 'Boleto ligado a nota sem comprovação',
-          detalhe: `${resumoB}. A nota ${semProva.map((c) => c.nota_numero).join(', ')} foi digitada à mão ou o XML não traz protocolo de autorização, então não prova nada. Importe o XML autorizado ou consulte a chave no portal da NF-e e registre ao liberar.` });
+          detalhe: `${resumoB}. ${semProva.map(motivoSemProva).join(' ')}` });
       }
       const outroFornecedor = b.fornecedor_id ? cs.find((c) => c.nota_fornecedor !== b.fornecedor_id) : null;
       if (outroFornecedor) {
@@ -111,10 +129,20 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
           detalhe: `${resumoB}. O boleto é de ${formatarCnpj(b.beneficiario_cnpj)} e o fornecedor/nota é ${formatarCnpj(diverge)}.${mesmaRaiz ? ' Mesma raiz de CNPJ: confirme se é filial.' : ' Pode ser boleto trocado ou golpe: confirme por telefone com o fornecedor antes de pagar.'}` });
       }
     }
-    if (b.pagador_cnpj && cfg.cnpjOficina && b.pagador_cnpj !== cfg.cnpjOficina) {
+    // pagador do boleto: a oficina, uma empresa do grupo (não é alerta: o veredito avisa de quem é) ou um CNPJ desconhecido (alerta)
+    if (b.pagador_cnpj && cfg.cnpjOficina && b.pagador_cnpj !== cfg.cnpjOficina && !grupo.has(b.pagador_cnpj)) {
       const mesmaRaiz = raiz(b.pagador_cnpj) === raiz(cfg.cnpjOficina);
       add({ tipo: 'boleto_pagador_diverge', severidade: mesmaRaiz ? 'media' : 'alta', entidade: 'boleto', id: b.id, boletos: [b.id], valor: b.valor, data: b.vencimento, estado: b.pagador_cnpj,
-        titulo: 'Boleto emitido contra outro CNPJ', detalhe: `${resumoB}. O pagador do boleto é ${formatarCnpj(b.pagador_cnpj)}, não a oficina (${formatarCnpj(cfg.cnpjOficina)}). Este boleto pode não ser de vocês.` });
+        titulo: 'Boleto emitido contra outro CNPJ', detalhe: `${resumoB}. O pagador do boleto é ${formatarCnpj(b.pagador_cnpj)}, não a oficina (${formatarCnpj(cfg.cnpjOficina)}) nem uma empresa cadastrada do grupo. Este boleto pode não ser de vocês. Se for da locadora ou da oficina do sócio, cadastre a empresa em Compras > Empresas do grupo.` });
+    }
+    // a nota foi emitida para uma empresa e o boleto cobra outra: o fornecedor fez dois documentos que não conversam
+    if (b.pagador_cnpj) {
+      const destDiferente = cs.find((c) => c.cnpj_destinatario && c.cnpj_destinatario !== b.pagador_cnpj);
+      if (destDiferente) {
+        add({ tipo: 'boleto_nota_empresas_diferentes', severidade: 'media', entidade: 'boleto', id: b.id, boletos: [b.id], notas: [destDiferente.nota_id], valor: b.valor, data: b.vencimento, estado: `${b.pagador_cnpj}|${destDiferente.cnpj_destinatario}`,
+          titulo: 'Nota e boleto em nome de empresas diferentes',
+          detalhe: `${resumoB}. O boleto é contra ${formatarCnpj(b.pagador_cnpj)} e a nota ${destDiferente.nota_numero} foi emitida para ${formatarCnpj(destDiferente.cnpj_destinatario)}. Pergunte ao fornecedor qual está certo antes de pagar.` });
+      }
     }
     if (b.situacao === 'aberto') {
       const urgente = b.vencimento <= somarDias(hojeStr, 3);
@@ -133,8 +161,11 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
           titulo: 'Boleto cadastrado sem linha digitável', detalhe: `${resumoB}. Sem a linha digitável o sistema não confere valor, vencimento, banco nem duplicidade. Cadastre de novo com a linha.` });
       }
       if (b.fornecedor_id && !b.fornecedor_confirmado) {
-        add({ tipo: 'fornecedor_nao_confirmado', severidade: 'media', entidade: 'fornecedor', id: b.fornecedor_id, boletos: [b.id], valor: b.valor, data: b.vencimento,
-          titulo: 'Fornecedor ainda não confirmado', detalhe: `${nome(b)} nunca teve o CNPJ e o telefone conferidos por uma pessoa. Em Compras > Fornecedores, confira pelo cartão CNPJ e por um telefone que a oficina já tinha, e marque "conferido".` });
+        // a primeira vez que se paga a um fornecedor é o momento de maior risco (fornecedor inventado ou trocado): bloqueia até o dono confirmar
+        const primeira = !jaPagouAoFornecedor.has(b.fornecedor_id);
+        add({ tipo: 'fornecedor_nao_confirmado', severidade: primeira ? 'alta' : 'media', entidade: 'fornecedor', id: b.fornecedor_id, boletos: [b.id], valor: b.valor, data: b.vencimento, estado: primeira ? 'primeira_vez' : 'ja_pago',
+          titulo: primeira ? 'Primeiro pagamento a um fornecedor não confirmado' : 'Fornecedor ainda não confirmado',
+          detalhe: `${nome(b)} nunca teve o CNPJ e o telefone conferidos por uma pessoa${primeira ? ' e ainda não recebeu nenhum pagamento por aqui' : ''}. O dono confere em Compras > Fornecedores pelo cartão CNPJ e por um telefone que a oficina já tinha, e marca "conferido".` });
       }
     }
     // fornecedor que sempre cobrou por um banco e agora aparece com outro: sinal clássico de boleto adulterado (ou de troca legítima de conta)
@@ -204,9 +235,9 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
     const cs = porNota.get(n.id) ?? [];
     const conciliado = cs.reduce((a, c) => a + c.valor, 0);
     const limite = Math.max(n.valor_total, n.valor_com_tributos ?? 0);
-    if (n.cnpj_destinatario && cfg.cnpjOficina && n.cnpj_destinatario !== cfg.cnpjOficina) {
+    if (n.cnpj_destinatario && cfg.cnpjOficina && n.cnpj_destinatario !== cfg.cnpjOficina && !grupo.has(n.cnpj_destinatario)) {
       add({ tipo: 'nota_destinatario_diverge', severidade: raiz(n.cnpj_destinatario) === raiz(cfg.cnpjOficina) ? 'media' : 'alta', entidade: 'nota', id: n.id, notas: [n.id], boletos: cs.map((c) => c.boleto_id), valor: n.valor_total, data: n.data_emissao, estado: n.cnpj_destinatario,
-        titulo: 'Nota emitida para outro CNPJ', detalhe: `Nota ${n.numero} de ${n.fornecedor} (${reais(n.valor_total)}) está em nome de ${formatarCnpj(n.cnpj_destinatario)}${n.nome_destinatario ? ` (${n.nome_destinatario})` : ''}, e não da oficina.` });
+        titulo: 'Nota emitida para outro CNPJ', detalhe: `Nota ${n.numero} de ${n.fornecedor} (${reais(n.valor_total)}) está em nome de ${formatarCnpj(n.cnpj_destinatario)}${n.nome_destinatario ? ` (${n.nome_destinatario})` : ''}, e não da oficina nem de uma empresa cadastrada do grupo. Se for da locadora ou da oficina do sócio, cadastre a empresa em Compras > Empresas do grupo.` });
     }
     if (conciliado > limite + tol) {
       add({ tipo: 'nota_cobrada_a_mais', severidade: 'alta', entidade: 'nota', id: n.id, notas: [n.id], boletos: cs.map((c) => c.boleto_id), valor: r2(conciliado - limite), data: n.data_emissao, estado: String(r2(conciliado)),
@@ -281,6 +312,55 @@ export function ocorrencias(db, hojeStr, cfg = lerConfig(db)) {
     add({ tipo: 'os_sem_nota', severidade: 'baixa', entidade: 'os', id: 0, valor: total, data: desde, estado: `${desde}|${semNota.length}`,
       titulo: `${semNota.length} OS com custo de peça e nenhuma nota ligada`,
       detalhe: `Desde ${dataBR(desde)}: ${reais(total)} de custo de peças que não se prova com nota. Maiores: ${maiores}. Ligue as peças às OS em Compras > Notas para saber o custo real e achar compra sem destino.` });
+  }
+
+  // peça de nota em nome de outra empresa do grupo aplicada em OS da oficina: alguém pagou por algo que é da oficina
+  if (grupo.size) {
+    const emOs = db.prepare(`SELECT n.id, n.numero, n.cnpj_destinatario, n.data_emissao, f.nome AS fornecedor, SUM(a.valor) AS v FROM alocacoes a
+        JOIN nota_itens i ON i.id = a.item_id JOIN notas_compra n ON n.id = i.nota_id JOIN fornecedores f ON f.id = n.fornecedor_id
+        WHERE a.destino = 'os' AND n.situacao = 'ativa' AND n.cnpj_destinatario IS NOT NULL AND ${ALOC_VALIDA} GROUP BY n.id`).all();
+    for (const x of emOs) {
+      const emp = grupo.get(x.cnpj_destinatario);
+      if (!emp) continue;
+      add({ tipo: 'peca_de_empresa_na_os', severidade: 'media', entidade: 'nota', id: x.id, notas: [x.id], valor: r2(x.v), data: x.data_emissao, estado: String(r2(x.v)),
+        titulo: `Peças pagas pela ${emp.nome} usadas em OS da oficina`,
+        detalhe: `Nota ${x.numero} de ${x.fornecedor} está em nome da ${emp.nome}, mas ${reais(x.v)} dela foram aplicados em OS da oficina. A ${emp.nome} pagou por algo que é custo da oficina: registre o acerto em Compras > Entre empresas (a oficina deve à ${emp.nome}) ou marque como conferida se já foi combinado.` });
+    }
+  }
+
+  // DDA do banco x boletos cadastrados (só existe quando o dono importou o arquivo do banco)
+  const dda = cruzarDda(db, hojeStr, cfg);
+  for (const x of dda.sem_cadastro) {
+    const t = x.titulo;
+    add({ tipo: 'dda_sem_cadastro', severidade: 'alta', entidade: 'dda', id: t.id, valor: t.valor, data: t.vencimento, estado: `${t.valor}|${t.vencimento}`,
+      titulo: 'Boleto no DDA do banco que ninguém cadastrou',
+      detalhe: `O banco mostra no DDA um boleto de ${reais(t.valor)} vencendo em ${dataBR(t.vencimento)}${t.beneficiario_nome ? `, de ${t.beneficiario_nome}` : ''}${t.beneficiario_cnpj ? ` (CNPJ ${formatarCnpj(t.beneficiario_cnpj)})` : ''}, contra ${x.escopo ? 'a empresa do grupo' : 'o CNPJ da oficina'}, e ele NÃO está cadastrado no sistema. Pode ser só falta de cadastro (peça a nota ao fornecedor e cadastre) ou cobrança que não é de vocês. Não pague antes de conferir.` });
+  }
+  for (const x of dda.diverge.filter((d) => ['aberto', 'pago'].includes(d.boleto.situacao))) {
+    add({ tipo: 'dda_diverge', severidade: 'alta', entidade: 'boleto', id: x.boleto.id, boletos: [x.boleto.id], valor: x.boleto.valor, data: x.boleto.vencimento, estado: x.diferencas.join('|'),
+      titulo: 'Boleto cadastrado diferente do que o banco mostra no DDA',
+      detalhe: `${nome(x.boleto)}: ${x.diferencas.join('; ')}. O DDA vem do banco; o cadastro foi digitado. Confira o papel do boleto antes de pagar.` });
+  }
+  for (const x of dda.fora_do_dda) {
+    add({ tipo: 'boleto_fora_do_dda', severidade: 'media', entidade: 'boleto', id: x.boleto.id, boletos: [x.boleto.id], valor: x.boleto.valor, data: x.boleto.vencimento,
+      titulo: 'Boleto cadastrado que o banco não mostra no DDA',
+      detalhe: `${nome(x.boleto)}: ${reais(x.boleto.valor)}, vence ${dataBR(x.boleto.vencimento)}. O DDA de ${dataBR(x.importacao.em.slice(0, 10))} não lista este boleto. Pode ser boleto sem registro (alguns fornecedores usam), já pago, ainda não atualizado no banco, ou falso: confirme com o fornecedor.` });
+  }
+  for (const i of dda.importacoes) {
+    if (i.dias > 7) {
+      add({ tipo: 'dda_desatualizado', severidade: i.dias > 15 ? 'media' : 'baixa', entidade: 'dda', id: i.id, data: i.em.slice(0, 10), estado: String(Math.floor(i.dias / 8)),
+        titulo: 'DDA do banco desatualizado', detalhe: `O último DDA importado${i.empresa_id ? ' desta empresa' : ''} é de ${dataBR(i.em.slice(0, 10))} (${i.dias} dias). Exporte de novo no banco e importe em Compras > DDA: sem isso, boleto novo não é conferido contra o banco.` });
+    }
+  }
+
+  // dinheiro entre as empresas que está demorando para voltar
+  const prazoAdiant = cfg.diasDevolucaoAdiantamento ?? 30;
+  for (const a of db.prepare('SELECT a.*, e.nome AS empresa FROM adiantamentos a JOIN empresas_grupo e ON e.id = a.empresa_id').all()) {
+    const falta = saldoDoAdiantamento(db, a.id);
+    if (falta <= 0.04 || diasEntre(a.data, hojeStr) <= prazoAdiant) continue;
+    add({ tipo: 'adiantamento_antigo', severidade: 'media', entidade: 'adiantamento', id: a.id, valor: falta, data: a.data, estado: String(falta),
+      titulo: a.sentido === 'a_receber' ? `${a.empresa} deve à oficina há ${diasEntre(a.data, hojeStr)} dias` : `A oficina deve à ${a.empresa} há ${diasEntre(a.data, hojeStr)} dias`,
+      detalhe: `${a.descricao}: faltam ${reais(falta)} desde ${dataBR(a.data)} (prazo combinado: ${prazoAdiant} dias). Registre a devolução em Compras > Entre empresas ou combine uma data.` });
   }
 
   // pagamento de peças lançado direto em Contas, sem passar por Compras
@@ -365,9 +445,14 @@ export function vereditoDoBoleto(b, ocs, cfg) {
   const abertas = ocs.filter((o) => !o.aceita);
   const graves = abertas.filter((o) => o.severidade === 'alta');
   if (graves.length) return { nivel: 'ruim', texto: `NÃO PAGUE: ${graves[0].titulo}${graves.length > 1 ? ` (+${graves.length - 1})` : ''}`, curto: 'NÃO PAGUE' };
+  if (b.dda === 'confirmado' && !graves.length) {
+    const medias0 = abertas.filter((o) => o.severidade === 'media');
+    if (!medias0.length) return { nivel: 'ok', texto: `Conferido com a nota e confirmado no DDA do banco: valor, vencimento e quem recebe (${b.fornecedor ?? 'fornecedor'}) batem${b.empresa_nome ? `. Boleto da ${b.empresa_nome}: ao pagar, diga quem paga` : ''}`, curto: b.empresa_nome ? `Da ${b.empresa_nome}` : 'No DDA' };
+  }
   if (!b.beneficiario_cnpj) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ de quem recebe', curto: 'Falta quem recebe' };
   if (!b.pagador_cnpj && cfg.cnpjOficina) return { nivel: 'atencao', texto: 'NÃO CONFERIDO: falta o CNPJ do pagador', curto: 'Falta quem paga' };
   const medias = abertas.filter((o) => o.severidade === 'media');
   if (medias.length) return { nivel: 'atencao', texto: `Conferir: ${medias[0].titulo}${medias.length > 1 ? ` (+${medias.length - 1})` : ''}`, curto: 'Conferir' };
+  if (b.empresa_nome) return { nivel: 'ok', texto: `Boleto da ${b.empresa_nome}, não da oficina. Ao pagar, diga quem paga. Veja no app do banco se quem recebe é ${b.fornecedor ?? 'o fornecedor'}`, curto: `Da ${b.empresa_nome}` };
   return { nivel: 'ok', texto: `Conferido com a nota. Antes de pagar, veja no app do banco se quem recebe é ${b.fornecedor ?? 'o fornecedor'}`, curto: 'Conferido' };
 }

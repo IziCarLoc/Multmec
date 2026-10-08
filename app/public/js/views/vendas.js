@@ -1,5 +1,5 @@
 import { h, brl, brl0, pct, dataBR, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, numBR as num, paraCampo } from '../ui.js';
-import { GET, POST, PUT, DEL } from '../api.js';
+import { GET, POST, PUT, DEL, ehDono } from '../api.js';
 
 const FORMAS = [['', '—'], ['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['débito', 'Débito'], ['cartão', 'Cartão de crédito'], ['boleto', 'Boleto'], ['transferência', 'Transferência']];
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -45,7 +45,7 @@ export async function formVenda(venda, aoSalvar) {
       !venda?.id ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'pagoAgora' }), ' Cliente já pagou (registrar recebimento hoje)') : null,
       campo('Observação', entrada('obs', v.obs || '')),
       h('div', { class: 'botoes' },
-        venda?.id ? h('button', { type: 'button', class: 'perigo', onclick: async () => { if (confirmar('Apagar esta OS e seus recebimentos?')) { await DEL(`/vendas/${venda.id}`); fechar(); aoSalvar(); } } }, 'Apagar') : null,
+        venda?.id && ehDono() ? h('button', { type: 'button', class: 'perigo', onclick: async () => { if (confirmar('Apagar esta OS e seus recebimentos?')) { await DEL(`/vendas/${venda.id}`); fechar(); aoSalvar(); } } }, 'Apagar') : null,
         h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
     const atualizarResumo = () => {
       const d = lerForm(f);

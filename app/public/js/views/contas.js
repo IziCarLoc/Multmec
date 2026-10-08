@@ -1,5 +1,5 @@
 import { h, brl, brl0, dataBR, dataCurta, nomeMes, somarMes, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, confirmar, montar, acao, numBR as num, paraCampo } from '../ui.js';
-import { GET, POST, PUT, DEL } from '../api.js';
+import { GET, POST, PUT, DEL, ehDono } from '../api.js';
 import { pagarComTrava, modalBoleto } from './compras_modais.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -15,9 +15,9 @@ async function formConta(conta, aoSalvar) {
         campo('Valor', entrada('valor', c.valor ?? '', { inputmode: 'decimal', required: true })),
         campo('Vencimento', entrada('vencimento', c.vencimento, { type: 'date', required: true }))),
       campo('Fornecedor', entrada('fornecedor', c.fornecedor || '')),
-      !conta?.id ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'pagarAgora' }), ' Já paguei (registrar pagamento hoje)') : null,
+      !conta?.id && ehDono() ? h('label', { class: 'marcar' }, h('input', { type: 'checkbox', name: 'pagarAgora' }), ' Já paguei (registrar pagamento hoje)') : null,
       h('div', { class: 'botoes' },
-        conta?.id ? h('button', { type: 'button', class: 'perigo', onclick: async () => { if (confirmar('Apagar esta conta?')) { await DEL(`/saidas/${conta.id}`); fechar(); aoSalvar(); } } }, 'Apagar') : null,
+        conta?.id && ehDono() ? h('button', { type: 'button', class: 'perigo', onclick: async () => { if (confirmar('Apagar esta conta?')) { await DEL(`/saidas/${conta.id}`); fechar(); aoSalvar(); } } }, 'Apagar') : null,
         h('button', { type: 'submit', class: 'primario' }, 'Salvar')));
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -61,7 +61,8 @@ export async function contas(el, estado) {
         h('b', null, s.descricao), h('small', null, `${dataCurta(s.vencimento)} · ${s.categoria}${s.fornecedor && !s.boleto_id ? ' · ' + s.fornecedor : ''}`),
         s.veredito && !s.pago_em ? selo(s.veredito.curto, { ruim: 'critico', atencao: 'aviso', ok: 'ok', neutro: 'neutro' }[s.veredito.nivel]) : null),
       h('div', { class: 'acoes' }, h('b', null, brl(s.valor)),
-        s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: acao(async () => { if (!confirmar('Desfazer este pagamento? Ele volta a ficar em aberto.')) return; await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); }) }, 'Desfazer')
+        !ehDono() ? (s.pago_em ? selo('paga', 'ok') : null)
+          : s.pago_em ? h('button', { class: 'pequeno', title: 'Desfazer pagamento', onclick: acao(async () => { if (!confirmar('Desfazer este pagamento? Ele volta a ficar em aberto.')) return; await POST(`/saidas/${s.id}/pagar`, { desfazer: true }); recarregar(); }) }, 'Desfazer')
           : h('button', { class: 'pequeno primario', onclick: acao(() => pagarComTrava((extra) => POST(`/saidas/${s.id}/pagar`, extra), recarregar, { fornecedor: s.fornecedor })) }, 'Paguei'))))) : null;
   const recarregar = () => contas(el, estado);
   montar(el, 
@@ -74,7 +75,7 @@ export async function contas(el, estado) {
       h('div', null, h('span', null, 'Já pago'), h('b', { class: 'bom' }, brl0(d.totais.pagas))),
       h('div', null, h('span', null, 'Falta pagar'), h('b', null, brl0(d.totais.aPagar))),
       h('div', null, h('span', null, 'Atrasado'), h('b', { class: d.totais.atrasadas > 0 ? 'ruim' : '' }, brl0(d.totais.atrasadas)))),
-    h('div', { class: 'botoes-topo' }, h('button', { onclick: () => modelosFixos(recarregar) }, 'Modelos fixos'), h('button', { class: 'primario', onclick: () => formConta(null, recarregar) }, '+ Nova conta')),
+    h('div', { class: 'botoes-topo' }, ehDono() ? h('button', { onclick: () => modelosFixos(recarregar) }, 'Modelos fixos') : h('span', { class: 'dica' }, 'Quem paga é o dono.'), h('button', { class: 'primario', onclick: () => formConta(null, recarregar) }, '+ Nova conta')),
     grupo('Atrasadas', d.linhas.filter((s) => s.situacao === 'atrasada'), 'atrasada'),
     grupo('A pagar', d.linhas.filter((s) => s.situacao === 'a_pagar'), ''),
     grupo('Pagas', d.linhas.filter((s) => s.situacao === 'paga'), 'paga'),

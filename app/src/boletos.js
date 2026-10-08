@@ -6,7 +6,9 @@ import { ErroValidacao, dinheiro, motivoValido, MOTIVO_MINIMO } from './validar.
 import { garantirFornecedor, duplicatasComSaldo } from './compras.js';
 import { ocorrenciasDoBoleto, ocorrencias } from './auditoria.js';
 import { lerConfig } from './db.js';
-import { registrar } from './trilha.js';
+import { registrar, perfilAtual } from './trilha.js';
+import { confirmadoNoDda } from './dda.js';
+import { empresaDoCnpj, adiantamentoDeBoleto, removerAdiantamentoDeOrigem } from './grupo.js';
 
 export class ErroBloqueio extends Error {
   constructor(msg, ocorrencias) { super(msg); this.ocorrencias = ocorrencias; }
@@ -139,6 +141,7 @@ export function conciliar(db, boletoId, itens, origem = 'manual') {
     if (!b.fornecedor_id && fornecedorDaNota) db.prepare('UPDATE boletos SET fornecedor_id = ? WHERE id = ?').run(fornecedorDaNota, boletoId);
     registrar(db, 'conciliar', 'boleto', boletoId, { origem, notas: itens.map((i) => i.nota_id), valor: r2(novo) });
   })();
+  aplicarEmpresaDoBoleto(db, boletoId);              // sem o pagador impresso, a nota diz de quem é o boleto
   return true;
 }
 
@@ -146,7 +149,7 @@ export function desconciliar(db, boletoId, notaId) {
   const b = db.prepare('SELECT situacao FROM boletos WHERE id = ?').get(boletoId);
   if (b?.situacao === 'pago') throw new ErroValidacao('Este boleto já foi pago: a ligação com a nota não pode ser desfeita (ela é a prova do que foi pago).');
   const ok = db.prepare('DELETE FROM conciliacoes WHERE boleto_id = ? AND nota_id = ?').run(boletoId, notaId).changes > 0;
-  if (ok) registrar(db, 'desconciliar', 'boleto', boletoId, { nota: notaId });
+  if (ok) { registrar(db, 'desconciliar', 'boleto', boletoId, { nota: notaId }); aplicarEmpresaDoBoleto(db, boletoId); }
   return ok;
 }
 
@@ -234,20 +237,23 @@ export function criarBoleto(db, d, hojeStr, cfg = lerConfig(db), { semOcorrencia
 
   let boletoId;
   let contaAdotada = false;
+  // boleto contra o CNPJ de outra empresa do grupo não é conta a pagar da oficina: não cria saída
+  const empresaPagadora = pagadorCnpj ? empresaDoCnpj(db, pagadorCnpj) : null;
   db.transaction(() => {
-    const conta = contaDoBoleto(db, { fornecedor, valor, vencimento, numeroDocumento: d.numero_documento });
+    const conta = empresaPagadora ? { id: null, adotada: false } : contaDoBoleto(db, { fornecedor, valor, vencimento, numeroDocumento: d.numero_documento });
     contaAdotada = conta.adotada;
     const campos = [fornecedor.id, leitura?.codigoBarras ?? null, leitura?.linhaDigitavel ?? null, leitura?.banco ?? null, valor, vencimento,
       d.numero_documento ? String(d.numero_documento).trim().slice(0, 40) : null, d.beneficiario_nome ? String(d.beneficiario_nome).trim().slice(0, 80) : null,
-      benefCnpj, pagadorCnpj, conta.id, d.obs ? String(d.obs).slice(0, 300) : null];
+      benefCnpj, pagadorCnpj, conta.id, empresaPagadora?.id ?? null, perfilAtual(), d.obs ? String(d.obs).slice(0, 300) : null];
     if (reativarId) {
       db.prepare(`UPDATE boletos SET fornecedor_id = ?, codigo_barras = ?, linha_digitavel = ?, banco = ?, valor = ?, vencimento = ?, numero_documento = ?,
-          beneficiario_nome = ?, beneficiario_cnpj = ?, pagador_cnpj = ?, saida_id = ?, obs = ?, situacao = 'aberto', aprovado_motivo = NULL, aprovado_em = NULL, conferido_banco_em = NULL WHERE id = ?`).run(...campos, reativarId);
+          beneficiario_nome = ?, beneficiario_cnpj = ?, pagador_cnpj = ?, saida_id = ?, empresa_id = ?, criado_por = ?, obs = ?, situacao = 'aberto', aprovado_motivo = NULL, aprovado_em = NULL, conferido_banco_em = NULL WHERE id = ?`).run(...campos, reativarId);
       boletoId = reativarId;
       registrar(db, 'reabrir', 'boleto', boletoId, 'cadastrado de novo');
     } else {
       boletoId = Number(db.prepare(`INSERT INTO boletos (fornecedor_id, codigo_barras, linha_digitavel, banco, valor, vencimento, numero_documento,
-          beneficiario_nome, beneficiario_cnpj, pagador_cnpj, saida_id, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...campos).lastInsertRowid);
+          beneficiario_nome, beneficiario_cnpj, pagador_cnpj, saida_id, empresa_id, criado_por, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...campos).lastInsertRowid);
+      registrar(db, 'cadastrar', 'boleto', boletoId, { valor, vencimento });
     }
   })();
   const auto = conciliarAutomatico(db, boletoId, cfg);
@@ -286,6 +292,7 @@ export function atualizarBoleto(db, boletoId, campos, hojeStr, cfg = lerConfig(d
     db.prepare(`UPDATE boletos SET ${chaves.map((k) => `${k} = @${k}`).join(', ')} WHERE id = @id`).run({ ...novo, id: boletoId });
     registrar(db, 'corrigir', 'boleto', boletoId, novo);
   })();
+  aplicarEmpresaDoBoleto(db, boletoId);
   const auto = db.prepare('SELECT 1 FROM conciliacoes WHERE boleto_id = ?').get(boletoId) ? null : conciliarAutomatico(db, boletoId, cfg);
   return { alterado: true, auto, ocorrencias: ocorrenciasDoBoleto(db, boletoId, hojeStr, cfg) };
 }
@@ -297,12 +304,49 @@ export function reabrirBoleto(db, boletoId, hojeStr, cfg = lerConfig(db)) {
   if (b.situacao !== 'contestado' && b.situacao !== 'cancelado') throw new ErroValidacao('Só boleto contestado ou cancelado pode ser reaberto.');
   const fornecedor = b.fornecedor_id ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(b.fornecedor_id) : null;
   db.transaction(() => {
-    const conta = contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
+    const conta = b.empresa_id ? { id: null } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
     db.prepare("UPDATE boletos SET situacao = 'aberto', saida_id = ?, conferido_banco_em = NULL WHERE id = ?").run(conta.id, boletoId);
     registrar(db, 'reabrir', 'boleto', boletoId, `estava ${b.situacao}`);
   })();
   const auto = conciliarAutomatico(db, boletoId, cfg);
   return { auto, ocorrencias: ocorrenciasDoBoleto(db, boletoId, hojeStr, cfg) };
+}
+
+// ------------------------------------------------------------------ boleto de outra empresa do grupo
+
+/**
+ * Decide de quem é o boleto em aberto: o CNPJ do pagador impresso manda; sem ele, vale a empresa para a qual as notas ligadas foram emitidas.
+ * Boleto de empresa do grupo sai das contas a pagar da oficina (a conta some); se voltar a ser da oficina, a conta é recriada.
+ */
+export function aplicarEmpresaDoBoleto(db, boletoId) {
+  const b = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
+  if (!b || b.situacao !== 'aberto') return null;
+  let alvo = null;
+  if (b.pagador_cnpj) alvo = empresaDoCnpj(db, b.pagador_cnpj)?.id ?? null;
+  else {
+    const donos = db.prepare('SELECT DISTINCT n.cnpj_destinatario AS c FROM conciliacoes c JOIN notas_compra n ON n.id = c.nota_id WHERE c.boleto_id = ?').all(boletoId)
+      .map((x) => (x.c ? empresaDoCnpj(db, x.c)?.id ?? null : null));
+    if (donos.length && donos.every((x) => x !== null && x === donos[0])) alvo = donos[0];
+  }
+  if (alvo === (b.empresa_id ?? null)) return alvo;
+  const fornecedor = b.fornecedor_id ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(b.fornecedor_id) : null;
+  db.transaction(() => {
+    if (alvo !== null) {
+      db.prepare('UPDATE boletos SET empresa_id = ?, saida_id = NULL WHERE id = ?').run(alvo, boletoId);
+      if (b.saida_id) db.prepare('DELETE FROM saidas WHERE id = ? AND pago_em IS NULL').run(b.saida_id);
+    } else {
+      const conta = b.saida_id ? { id: b.saida_id } : contaDoBoleto(db, { fornecedor, valor: b.valor, vencimento: b.vencimento, numeroDocumento: b.numero_documento });
+      db.prepare('UPDATE boletos SET empresa_id = NULL, saida_id = ? WHERE id = ?').run(conta.id, boletoId);
+    }
+    registrar(db, 'empresa_do_boleto', 'boleto', boletoId, { de: b.empresa_id ?? null, para: alvo });
+  })();
+  return alvo;
+}
+
+/** Depois de cadastrar, ativar ou desativar uma empresa do grupo: refaz a empresa das notas e dos boletos em aberto. */
+export function reatribuirEmpresas(db) {
+  db.prepare('UPDATE notas_compra SET empresa_id = (SELECT e.id FROM empresas_grupo e WHERE e.cnpj = notas_compra.cnpj_destinatario AND e.ativo = 1)').run();
+  for (const { id } of db.prepare("SELECT id FROM boletos WHERE situacao = 'aberto'").all()) aplicarEmpresaDoBoleto(db, id);
 }
 
 // ------------------------------------------------------------------ pagamento com trava
@@ -313,17 +357,23 @@ export function reabrirBoleto(db, boletoId, hojeStr, cfg = lerConfig(db)) {
  * 2) Ocorrência grave exige "pagar mesmo assim" com motivo (`aprovar` + `motivo`).
  * 3) Valor pago diferente do valor do boleto exige motivo (juros, multa, desconto).
  */
-export function pagarBoleto(db, boletoId, { data, valor = null, aprovar = false, motivo = null, conferiuBanco = false }, hojeStr, cfg = lerConfig(db)) {
+export function pagarBoleto(db, boletoId, { data, valor = null, aprovar = false, motivo = null, conferiuBanco = false, pagoPor = null }, hojeStr, cfg = lerConfig(db)) {
   const b = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
   if (!b) throw new ErroValidacao('Boleto não encontrado.');
   if (b.situacao === 'pago') throw new ErroValidacao('Este boleto já foi pago.');
   if (b.situacao === 'cancelado') throw new ErroValidacao('Este boleto está cancelado.');
   if (b.situacao === 'contestado') throw new ErroValidacao('Este boleto está contestado. Reabra-o antes de pagar.');
+  // boleto de outra empresa do grupo: é preciso dizer de quem sai o dinheiro (a conta da oficina cobre o que é dos outros? então fica a receber)
+  const empresa = b.empresa_id ? db.prepare('SELECT * FROM empresas_grupo WHERE id = ?').get(b.empresa_id) : null;
+  if (empresa && pagoPor !== 'oficina' && pagoPor !== 'empresa') {
+    throw new ErroValidacao(`Este boleto é da ${empresa.nome}, não da oficina. Diga quem está pagando: a oficina (o valor fica a receber da ${empresa.nome}) ou a própria ${empresa.nome}.`);
+  }
   const todas = ocorrenciasDoBoleto(db, boletoId, hojeStr, cfg).filter((o) => o.severidade === 'alta');
   const graves = todas.filter((o) => !o.aceita);
   const aceitasAltas = todas.filter((o) => o.aceita);
   const forn = b.fornecedor_id ? db.prepare('SELECT nome, cnpj FROM fornecedores WHERE id = ?').get(b.fornecedor_id) : null;
-  const semConferirBanco = !b.conferido_banco_em && !conferiuBanco;
+  // o DDA importado do banco já mostra quem recebe (CNPJ), o valor e o vencimento: dispensa conferir de novo no app do banco
+  const semConferirBanco = !b.conferido_banco_em && !conferiuBanco && !confirmadoNoDda(db, b, hojeStr, cfg);
   const liberacao = aprovar && motivoValido(motivo);
   const bloqueios = [...graves];
   if (semConferirBanco) {
@@ -347,7 +397,8 @@ export function pagarBoleto(db, boletoId, { data, valor = null, aprovar = false,
     db.prepare("UPDATE boletos SET situacao = 'pago', aprovado_motivo = ?, aprovado_em = ?, conferido_banco_em = COALESCE(conferido_banco_em, ?) WHERE id = ?")
       .run(registro, registro ? hojeStr : null, conferiuBanco ? hojeStr : null, boletoId);
     if (b.saida_id) db.prepare('UPDATE saidas SET pago_em = ?, valor_pago = ? WHERE id = ?').run(pagoEm, valor ?? b.valor, b.saida_id);
-    registrar(db, graves.length || aceitasAltas.length ? 'pagar_liberado' : 'pagar', 'boleto', boletoId, { valor: valor ?? b.valor, conferiu_banco: !!conferiuBanco, motivo: registro });
+    if (empresa && pagoPor === 'oficina') adiantamentoDeBoleto(db, { empresa, boleto: b, valor: valor ?? b.valor, data: pagoEm });
+    registrar(db, graves.length || aceitasAltas.length ? 'pagar_liberado' : 'pagar', 'boleto', boletoId, { valor: valor ?? b.valor, conferiu_banco: !!conferiuBanco, motivo: registro, ...(empresa ? { empresa: empresa.nome, pago_por: pagoPor } : {}) });
   })();
   return { ok: true, liberado_com_ressalva: graves.length > 0 || aceitasAltas.length > 0 };
 }
@@ -356,6 +407,7 @@ export function desfazerPagamentoBoleto(db, boletoId) {
   const b = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
   if (!b || b.situacao !== 'pago') return false;
   db.transaction(() => {
+    removerAdiantamentoDeOrigem(db, { boletoId });                      // recusa se a outra empresa já devolveu parte
     db.prepare("UPDATE boletos SET situacao = 'aberto', aprovado_motivo = NULL, aprovado_em = NULL WHERE id = ?").run(boletoId);
     if (b.saida_id) db.prepare('UPDATE saidas SET pago_em = NULL, valor_pago = NULL WHERE id = ?').run(b.saida_id);
     registrar(db, 'desfazer_pagamento', 'boleto', boletoId, { motivo_anterior: b.aprovado_motivo });

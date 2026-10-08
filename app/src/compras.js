@@ -2,9 +2,10 @@
 import { gzipSync } from 'node:zlib';
 import { lerXmlNfe, ErroNfe } from './nfe.js';
 import { cnpjValido, normalizarCnpj, lerChaveNfe } from './documentos.js';
-import { r2, somarDias, normalizarPlaca } from './util.js';
+import { r2, somarDias, normalizarPlaca, hoje as hojeBR } from './util.js';
 import { ErroValidacao } from './validar.js';
-import { registrar } from './trilha.js';
+import { registrar, perfilAtual } from './trilha.js';
+import { empresaDoCnpj, adiantamentoDePeca, removerAdiantamentoDeOrigem } from './grupo.js';
 
 const EPS = 1e-6;
 
@@ -82,10 +83,11 @@ function inserirNota(db, n) {
   db.transaction(() => {
     notaId = Number(db.prepare(`INSERT INTO notas_compra (fornecedor_id, chave, numero, serie, data_emissao, valor_total, valor_produtos, valor_frete,
         valor_desconto, cnpj_emitente, nome_emitente, cnpj_destinatario, nome_destinatario, finalidade, protocolo_status, natureza, info_compl, origem, xml_hash, xml_gz,
-        valor_com_tributos, situacao, cancelada_por, pago_no_ato, cnpj_receb)
+        valor_com_tributos, situacao, cancelada_por, pago_no_ato, cnpj_receb, empresa_id, criado_por)
         VALUES (@fornecedor_id, @chave, @numero, @serie, @data_emissao, @valor_total, @valor_produtos, @valor_frete, @valor_desconto, @cnpj_emitente,
         @nome_emitente, @cnpj_destinatario, @nome_destinatario, @finalidade, @protocolo_status, @natureza, @info_compl, @origem, @xml_hash, @xml_gz,
-        @valor_com_tributos, @situacao, @cancelada_por, @pago_no_ato, @cnpj_receb)`).run({
+        @valor_com_tributos, @situacao, @cancelada_por, @pago_no_ato, @cnpj_receb, @empresa_id, @criado_por)`).run({
+      empresa_id: n.cnpj_destinatario ? empresaDoCnpj(db, n.cnpj_destinatario)?.id ?? null : null, criado_por: perfilAtual(),
       fornecedor_id: fornecedor.id, chave: n.chave ?? null, numero: n.numero, serie: n.serie ?? '', data_emissao: n.data_emissao,
       valor_com_tributos: n.valor_com_tributos ?? null, situacao: n.situacao ?? 'ativa', cancelada_por: n.situacao === 'cancelada' ? 'sefaz' : null, pago_no_ato: n.pago_no_ato ? 1 : 0, cnpj_receb: n.cnpj_receb ?? null,
       valor_total: n.valor_total, valor_produtos: n.valor_produtos ?? null, valor_frete: n.valor_frete ?? null, valor_desconto: n.valor_desconto ?? null,
@@ -119,9 +121,10 @@ function completarNotaManual(db, existente, n) {
   db.transaction(() => {
     db.prepare(`UPDATE notas_compra SET chave = ?, serie = ?, data_emissao = ?, valor_total = ?, valor_produtos = ?, valor_frete = ?, valor_desconto = ?,
         cnpj_emitente = ?, nome_emitente = ?, cnpj_destinatario = ?, nome_destinatario = ?, finalidade = ?, protocolo_status = ?, natureza = ?, info_compl = ?,
-        origem = 'xml', xml_hash = ?, xml_gz = ?, valor_com_tributos = ?, situacao = ?, pago_no_ato = ?, cnpj_receb = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
+        origem = 'xml', xml_hash = ?, xml_gz = ?, valor_com_tributos = ?, situacao = ?, pago_no_ato = ?, cnpj_receb = ?, empresa_id = ? WHERE id = ?`).run(n.chave, n.serie ?? '', n.data_emissao, n.valor_total, n.valor_produtos ?? null, n.valor_frete ?? null, n.valor_desconto ?? null,
       n.cnpj_emitente ?? null, n.nome_emitente ?? null, n.cnpj_destinatario ?? null, n.nome_destinatario ?? null, n.finalidade ?? 'normal', n.protocolo_status ?? null,
-      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, n.valor_com_tributos ?? null, n.situacao === 'cancelada' ? 'cancelada' : existente.situacao, n.pago_no_ato ? 1 : 0, n.cnpj_receb ?? null, existente.id);
+      n.natureza ?? null, n.info_compl ?? null, n.hash ?? null, n.xml_gz ?? null, n.valor_com_tributos ?? null, n.situacao === 'cancelada' ? 'cancelada' : existente.situacao, n.pago_no_ato ? 1 : 0, n.cnpj_receb ?? null,
+      n.cnpj_destinatario ? empresaDoCnpj(db, n.cnpj_destinatario)?.id ?? null : null, existente.id);
     if (n.situacao === 'cancelada') db.prepare("UPDATE notas_compra SET cancelada_por = 'sefaz' WHERE id = ?").run(existente.id);
     const parcelasLigadas = db.prepare('SELECT COUNT(*) AS c FROM conciliacoes WHERE nota_id = ? AND duplicata_id IS NOT NULL').get(existente.id).c;
     if (!parcelasLigadas) {
@@ -197,6 +200,8 @@ export function criarNotaManual(db, d) {
     if (chaveLida.serie !== String(Number(d.serie || 0))) throw new ErroValidacao(`A série dentro da chave (${chaveLida.serie}) não é a digitada (${d.serie || '0'}).`);
     if (d.data_emissao && chaveLida.aamm !== `${d.data_emissao.slice(2, 4)}${d.data_emissao.slice(5, 7)}`) throw new ErroValidacao(`O mês dentro da chave (${chaveLida.aamm.slice(2)}/20${chaveLida.aamm.slice(0, 2)}) não é o mês da data de emissão digitada.`);
   }
+  const cnpjDest = normalizarCnpj(d.cnpj_destinatario) || null;
+  if (cnpjDest && !cnpjValido(cnpjDest)) throw new ErroValidacao('O CNPJ do destinatário (quem comprou) não passa na validação (confira os números).');
   const mesmoNumero = db.prepare('SELECT serie FROM notas_compra WHERE fornecedor_id = ? AND numero = ?').all(fornecedor.id, numero);
   if (mesmoNumero.length && (!d.serie || mesmoNumero.some((x) => x.serie === '' || x.serie === String(d.serie)))) {
     throw new ErroValidacao('Já existe uma nota com este número deste fornecedor. Confira antes de lançar de novo.');
@@ -210,6 +215,7 @@ export function criarNotaManual(db, d) {
     chave, numero, serie: d.serie ? String(d.serie) : '', data_emissao: d.data_emissao, valor_total: r2(d.valor_total),
     cnpj_emitente: fornecedor.cnpj ?? (cnpj || chaveLida?.cnpjEmitente || null), nome_emitente: fornecedor.nome, nome_fantasia: fornecedor.nome,
     finalidade: d.finalidade ?? 'normal', info_compl: d.info_compl ?? null, itens, duplicatas: d.duplicatas ?? [], origem: 'manual',
+    cnpj_destinatario: cnpjDest,
   });
   if (r.duplicada) throw new ErroValidacao('Esta nota já está cadastrada para este fornecedor.');
   return r;
@@ -218,7 +224,8 @@ export function criarNotaManual(db, d) {
 export function notaComSaldo(db, notaId) {
   const n = db.prepare(`SELECT n.id, n.fornecedor_id, n.chave, n.numero, n.serie, n.data_emissao, n.valor_total, n.valor_produtos, n.valor_frete, n.valor_desconto,
       n.cnpj_emitente, n.nome_emitente, n.cnpj_destinatario, n.nome_destinatario, n.finalidade, n.situacao, n.protocolo_status, n.natureza, n.info_compl,
-      n.valor_com_tributos, n.origem, n.xml_hash, n.obs, n.criado_em, f.nome AS fornecedor FROM notas_compra n JOIN fornecedores f ON f.id = n.fornecedor_id WHERE n.id = ?`).get(notaId);
+      n.valor_com_tributos, n.origem, n.xml_hash, n.obs, n.criado_em, n.empresa_id, n.criado_por, n.consulta_em, n.consulta_situacao, n.consulta_valor, n.consulta_por,
+      f.nome AS fornecedor, e.nome AS empresa FROM notas_compra n JOIN fornecedores f ON f.id = n.fornecedor_id LEFT JOIN empresas_grupo e ON e.id = n.empresa_id WHERE n.id = ?`).get(notaId);
   if (!n) return null;
   const conciliado = db.prepare('SELECT COALESCE(SUM(valor), 0) AS t FROM conciliacoes WHERE nota_id = ?').get(notaId).t;
   return { ...n, conciliado: r2(conciliado), saldo: r2(n.valor_total - conciliado) };
@@ -248,11 +255,11 @@ export function recalcularCustoOs(db, vendaId) {
 }
 
 /** Dá destino a (parte de) um item. Sem `quantidade`, usa tudo o que ainda não tem destino. */
-export function alocar(db, itemId, { destino = 'os', vendaId = null, quantidade = null, obs = null }) {
-  if (!['os', 'estoque', 'uso_interno', 'devolvido'].includes(destino)) throw new ErroValidacao('Destino inválido.');
+export function alocar(db, itemId, { destino = 'os', vendaId = null, quantidade = null, obs = null, empresaId = null, hojeStr = null }) {
+  if (!['os', 'estoque', 'uso_interno', 'devolvido', 'outra_empresa'].includes(destino)) throw new ErroValidacao('Destino inválido.');
   const rest = restanteItem(db, itemId);
   if (!rest) throw new ErroValidacao('Item não encontrado.');
-  const notaDoItem = db.prepare('SELECT numero, situacao, finalidade FROM notas_compra WHERE id = ?').get(rest.item.nota_id);
+  const notaDoItem = db.prepare('SELECT numero, situacao, finalidade, empresa_id FROM notas_compra WHERE id = ?').get(rest.item.nota_id);
   if (notaDoItem.situacao !== 'ativa') throw new ErroValidacao(`A nota ${notaDoItem.numero} está cancelada: a peça não pode ser aplicada.`);
   if (notaDoItem.finalidade === 'devolucao' || notaDoItem.finalidade === 'ajuste') throw new ErroValidacao(`A nota ${notaDoItem.numero} é de ${notaDoItem.finalidade === 'devolucao' ? 'devolução' : 'ajuste'}: não tem peça para aplicar.`);
   if (rest.quantidade <= EPS) throw new ErroValidacao('Este item já tem destino para toda a quantidade.');
@@ -264,9 +271,21 @@ export function alocar(db, itemId, { destino = 'os', vendaId = null, quantidade 
     if (!v) throw new ErroValidacao('Escolha a OS onde a peça foi aplicada.');
     if (v.situacao === 'orcamento' || v.situacao === 'cancelada' || v.situacao === 'saldo') throw new ErroValidacao('Só dá para aplicar peça em OS aberta ou concluída.');
   }
+  let empresa = null;
+  if (destino === 'outra_empresa') {
+    empresa = empresaId ? db.prepare('SELECT * FROM empresas_grupo WHERE id = ? AND ativo = 1').get(empresaId) : null;
+    if (!empresa) throw new ErroValidacao('Escolha a empresa do grupo que ficou com a peça (cadastre em Compras > Empresas do grupo).');
+  }
   const total = qtd >= rest.quantidade - EPS ? rest.valor : r2((rest.item.custo_total * qtd) / rest.item.quantidade);
-  const id = Number(db.prepare('INSERT INTO alocacoes (item_id, destino, venda_id, quantidade, valor, obs) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(itemId, destino, destino === 'os' ? vendaId : null, qtd, total, obs).lastInsertRowid);
+  let id;
+  db.transaction(() => {
+    id = Number(db.prepare('INSERT INTO alocacoes (item_id, destino, venda_id, empresa_id, quantidade, valor, obs) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(itemId, destino, destino === 'os' ? vendaId : null, empresa?.id ?? null, qtd, total, obs).lastInsertRowid);
+    // peça comprada no CNPJ da oficina e entregue a outra empresa do grupo: a oficina passa a ter esse custo a receber dela
+    if (empresa && !notaDoItem.empresa_id) {
+      adiantamentoDePeca(db, { empresa, alocacaoId: id, valor: total, data: hojeStr ?? hojeBR(new Date()), descricao: `Peças da nota ${notaDoItem.numero} (${rest.item.descricao}) entregues à ${empresa.nome}` });
+    }
+  })();
   if (destino === 'os') recalcularCustoOs(db, vendaId);
   return { id, valor: total };
 }
@@ -274,7 +293,10 @@ export function alocar(db, itemId, { destino = 'os', vendaId = null, quantidade 
 export function removerAlocacao(db, id) {
   const a = db.prepare('SELECT * FROM alocacoes WHERE id = ?').get(id);
   if (!a) return false;
-  db.prepare('DELETE FROM alocacoes WHERE id = ?').run(id);
+  db.transaction(() => {
+    removerAdiantamentoDeOrigem(db, { alocacaoId: id });                // recusa se a empresa já devolveu parte
+    db.prepare('DELETE FROM alocacoes WHERE id = ?').run(id);
+  })();
   if (a.venda_id) recalcularCustoOs(db, a.venda_id);
   return true;
 }
@@ -351,4 +373,56 @@ export function definirSituacaoNota(db, notaId, situacao, motivo = null) {
     recalcularCustoDasOsDaNota(db, notaId);
   })();
   return { ...n, situacao };
+}
+
+// ------------------------------------------------------------------ nota sem XML: chave e consulta no portal
+
+/** Nota que foi digitada sem chave e agora tem a chave da DANFE: confere se a chave diz o mesmo que a nota. */
+export function definirChaveDaNota(db, notaId, chaveTxt) {
+  const n = db.prepare('SELECT n.*, f.cnpj AS forn_cnpj FROM notas_compra n JOIN fornecedores f ON f.id = n.fornecedor_id WHERE n.id = ?').get(notaId);
+  if (!n) throw new ErroValidacao('Nota não encontrada.');
+  if (n.origem !== 'manual') throw new ErroValidacao('Esta nota veio de um XML e já tem a chave dela.');
+  const c = lerChaveNfe(chaveTxt);
+  if (!c.valida) throw new ErroValidacao(c.motivo);
+  if (c.modelo !== '55') throw new ErroValidacao(`A chave é de uma nota modelo ${c.modelo}; aqui só entra NF-e modelo 55.`);
+  if (n.forn_cnpj && n.forn_cnpj !== c.cnpjEmitente) throw new ErroValidacao('O CNPJ que está dentro da chave não é o do fornecedor desta nota. A chave é de outra empresa.');
+  if (c.numero !== String(Number(n.numero))) throw new ErroValidacao(`O número dentro da chave (${c.numero}) não é o número da nota (${n.numero}).`);
+  if (n.serie !== '' && c.serie !== String(Number(n.serie))) throw new ErroValidacao(`A série dentro da chave (${c.serie}) não é a da nota (${n.serie}).`);
+  if (c.aamm !== `${n.data_emissao.slice(2, 4)}${n.data_emissao.slice(5, 7)}`) throw new ErroValidacao('O mês dentro da chave não é o mês da emissão desta nota.');
+  if (db.prepare('SELECT 1 FROM notas_compra WHERE chave = ? AND id <> ?').get(c.chave, notaId)) throw new ErroValidacao('Esta chave já está em outra nota.');
+  db.transaction(() => {
+    db.prepare('UPDATE notas_compra SET chave = ?, cnpj_emitente = COALESCE(cnpj_emitente, ?) WHERE id = ?').run(c.chave, c.cnpjEmitente, notaId);
+    // chave nova invalida qualquer consulta antiga (era de uma nota sem chave: não pode existir, mas não custa limpar)
+    db.prepare('UPDATE notas_compra SET consulta_em = NULL, consulta_situacao = NULL, consulta_valor = NULL, consulta_por = NULL WHERE id = ?').run(notaId);
+    registrar(db, 'nota_chave', 'nota', notaId, { chave: c.chave });
+  })();
+  return c;
+}
+
+export const SITUACOES_CONSULTA = ['autorizada', 'cancelada', 'denegada', 'nao_encontrada'];
+
+/**
+ * Alguém consultou a chave no portal da NF-e e leu a situação e o valor. É a prova de uma nota que não veio com XML.
+ * A prova só vale quando a consulta é do DONO e o valor do portal é o da nota (quem só lança prepara, o dono confirma).
+ * Cancelada ou denegada no portal cancela a nota aqui também.
+ */
+export function registrarConsultaNota(db, notaId, { situacao, valor = null }, hojeStr) {
+  const n = db.prepare('SELECT * FROM notas_compra WHERE id = ?').get(notaId);
+  if (!n) throw new ErroValidacao('Nota não encontrada.');
+  if (!n.chave) throw new ErroValidacao('Sem a chave de 44 números não dá para consultar a nota no portal. Digite a chave que está na DANFE (use "Informar a chave").');
+  if (!SITUACOES_CONSULTA.includes(situacao)) throw new ErroValidacao('Escolha o que o portal mostrou: autorizada, cancelada, denegada ou não encontrada.');
+  let v = null;
+  if (situacao === 'autorizada') {
+    v = Number(valor);
+    if (!Number.isFinite(v) || !(v > 0)) throw new ErroValidacao('Informe o "Valor total da nota" que o portal mostrou.');
+  }
+  db.transaction(() => {
+    db.prepare('UPDATE notas_compra SET consulta_em = ?, consulta_situacao = ?, consulta_valor = ?, consulta_por = ? WHERE id = ?').run(hojeStr, situacao, v === null ? null : r2(v), perfilAtual(), notaId);
+    if ((situacao === 'cancelada' || situacao === 'denegada') && n.situacao !== 'cancelada') {
+      db.prepare("UPDATE notas_compra SET situacao = 'cancelada', cancelada_por = 'sefaz', protocolo_status = ? WHERE id = ?").run(situacao === 'denegada' ? '110' : '101', notaId);
+      recalcularCustoDasOsDaNota(db, notaId);
+    }
+    registrar(db, 'consulta_portal', 'nota', notaId, { situacao, valor: v === null ? null : r2(v), valor_da_nota: n.valor_total });
+  })();
+  return { situacao, valor: v, confere: situacao === 'autorizada' && Math.abs(v - n.valor_total) <= 0.05 };
 }

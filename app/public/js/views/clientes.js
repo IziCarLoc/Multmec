@@ -1,5 +1,5 @@
 import { h, brl, brl0, pct, dataBR, selo, vazio, carregando, toast, modal, campo, entrada, selecao, lerForm, montar, numBR as num, paraCampo } from '../ui.js';
-import { GET, POST, PUT } from '../api.js';
+import { GET, POST, PUT, ehDono } from '../api.js';
 
 const hojeISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const FAIXAS = [['aVencer', 'a vencer / no prazo', ''], ['ate7', '1 a 7 dias', ''], ['de8a15', '8 a 15 dias', 'aviso'], ['de16a30', '16 a 30 dias', 'critico'], ['mais30', 'mais de 30', 'critico']];
@@ -99,7 +99,7 @@ export async function clientes(el, estado) {
       h('div', { class: 'botoes' },
         h('button', { class: 'primario', onclick: () => receber(s.cliente, recarregar) }, 'Recebi'),
         h('button', { onclick: () => extrato(s.cliente) }, 'Extrato / cobrança'),
-        h('button', { onclick: () => saldoAnterior(s.cliente, recarregar) }, 'Saldo anterior'),
+        ehDono() ? h('button', { onclick: () => saldoAnterior(s.cliente, recarregar) }, 'Saldo anterior') : null,
         h('button', { onclick: () => formCliente(c, recarregar) }, 'Editar')));
   };
   const outros = todos.filter((c) => !cart.some((s) => s.cliente.id === c.id));

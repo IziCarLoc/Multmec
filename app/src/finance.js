@@ -1,6 +1,7 @@
 // Regras financeiras do Multmec. Funções puras sobre o banco: sem estado escondido,
 // "hoje" sempre entra como parâmetro (facilita teste e evita surpresa de fuso).
 import { lerConfig } from './db.js';
+import { movimentoDeCaixa } from './grupo.js';
 import { r2, diasUteis, diasEntre, somarDias, somarMeses, mesDe, ultimoDiaDoMes } from './util.js';
 
 const reais = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -173,8 +174,12 @@ export function caixa(db, hojeStr, cfg = lerConfig(db)) {
   if (!desde) return { configurado: false, saldo: null, entrou: 0, saiu: 0, desde: null };
   // recebimentos "histórico" vêm da importação da planilha (corte): não são dinheiro que entrou no caixa
   const entrou = db.prepare("SELECT COALESCE(SUM(valor), 0) AS t FROM recebimentos WHERE data > ? AND data <= ? AND COALESCE(forma, '') <> 'histórico'").get(desde, hojeStr).t;
-  const saiu = db.prepare('SELECT COALESCE(SUM(COALESCE(valor_pago, valor)), 0) AS t FROM saidas WHERE pago_em IS NOT NULL AND pago_em > ? AND pago_em <= ?').get(desde, hojeStr).t;
-  return { configurado: true, saldo: r2(cfg.saldoCaixaInicial + entrou - saiu), entrou: r2(entrou), saiu: r2(saiu), desde };
+  const saiuContas = db.prepare('SELECT COALESCE(SUM(COALESCE(valor_pago, valor)), 0) AS t FROM saidas WHERE pago_em IS NOT NULL AND pago_em > ? AND pago_em <= ?').get(desde, hojeStr).t;
+  // o que a oficina pagou por outra empresa do grupo e o que ela devolveu também mexem no saldo da conta
+  const grupo = movimentoDeCaixa(db, desde, hojeStr);
+  const saiu = saiuContas + grupo.saiu;
+  const entrouTotal = entrou + grupo.entrou;
+  return { configurado: true, saldo: r2(cfg.saldoCaixaInicial + entrouTotal - saiu), entrou: r2(entrouTotal), saiu: r2(saiu), desde };
 }
 
 /** OS concluídas com saldo em aberto, já com vencimento efetivo e dias de atraso. */
