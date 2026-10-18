@@ -52,7 +52,8 @@ return new class extends Migration
             Schema::create('audit_logs', function (Blueprint $table) {
                 $table->id();
                 $table->string('auditable_type');
-                $table->unsignedBigInteger('auditable_id');
+                // Texto: os ajustes têm chave em texto ("warranty_days"); os demais registros, número.
+                $table->string('auditable_id', 80);
                 $table->string('action', 40);
                 $table->text('reason')->nullable();
                 $table->json('changes')->nullable();
