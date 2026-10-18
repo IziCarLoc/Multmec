@@ -1,0 +1,11 @@
+{
+    "name": "multmec-os",
+    "private": true,
+    "scripts": {
+        "build:css": "tailwindcss -c tailwind.config.js -i resources/css/app.css -o public/css/app.css --minify",
+        "watch:css": "tailwindcss -c tailwind.config.js -i resources/css/app.css -o public/css/app.css --watch"
+    },
+    "devDependencies": {
+        "tailwindcss": "^3.4.19"
+    }
+}

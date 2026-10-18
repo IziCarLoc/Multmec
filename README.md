@@ -18,7 +18,8 @@ Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, 
 | [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md) | Perguntas para o dono e o que ficou de fora |
 | [`docs/08-hospedagem.md`](docs/08-hospedagem.md) | Como colocar no ar, backup e segurança |
 | [`docs/09-conciliacao-compras.md`](docs/09-conciliacao-compras.md) | Conferência de compras: nota fiscal × boleto × OS, auditoria e trava de pagamento; quem lança × quem paga; empresas do grupo (locadora, sócio); nota sem XML; DDA do banco |
-| [`app/`](app) | O sistema (Node.js + SQLite), com testes |
+| [`os/`](os) | **Sistema de ordens de serviço** da Multmec Liberdade (Laravel, para a Hostinger): vistoria, cotação, orçamento com aceite, execução, conferência e entrega. Veja [`os/README.md`](os/README.md) |
+| [`app/`](app) | O controle financeiro (Node.js + SQLite), com testes |
 | [`analise/`](analise) | Scripts em Python que geram os números e gráficos do diagnóstico |
 
 ## Rodar o sistema

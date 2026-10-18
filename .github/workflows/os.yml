@@ -1,0 +1,110 @@
+name: Sistema de OS
+
+# Testes do sistema de OS (pasta os/): estilo (pint), testes com SQLite e com MariaDB (a Hostinger
+# usa MySQL/MariaDB; o SQLite dos testes aceita coisas que o MySQL recusa) e o CSS compilado em dia.
+on:
+  pull_request:
+    paths: ['os/**', '.github/workflows/os.yml']
+  push:
+    paths: ['os/**', '.github/workflows/os.yml']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: os
+
+jobs:
+  sqlite:
+    name: Testes (SQLite), estilo e CSS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3, gd, exif, fileinfo, zip, intl, bcmath
+          coverage: none
+
+      - name: Cache do Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('os/composer.lock') }}
+          restore-keys: composer-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Preparar o .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Estilo (pint)
+        run: vendor/bin/pint --test
+
+      - name: Testes
+        run: php artisan test
+
+      # O CSS é compilado das views do sistema e das views de paginação do vendor: por isso roda depois do composer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: CSS compilado atualizado (public/css/app.css)
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:css
+          git diff --exit-code -- public/css/app.css || (echo "Rode 'npm run build:css' dentro de os/ e commite public/css/app.css" && exit 1)
+
+  mariadb:
+    name: Testes (MariaDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: testing
+          MARIADB_USER: testing
+          MARIADB_PASSWORD: testing
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_CONNECTION: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: testing
+      DB_USERNAME: testing
+      DB_PASSWORD: testing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, gd, exif, fileinfo, zip, intl, bcmath
+          coverage: none
+
+      - name: Cache do Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('os/composer.lock') }}
+          restore-keys: composer-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Preparar o .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Testes
+        run: php artisan test
