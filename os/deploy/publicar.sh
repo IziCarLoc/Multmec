@@ -49,6 +49,8 @@ php artisan down --retry=15 >/dev/null 2>&1 || true
 php artisan migrate --force --no-interaction
 # Unidades e checklist padrão (não duplica nem desfaz o que foi mudado em Ajustes).
 php artisan db:seed --force --no-interaction
+# Primeira publicação: as 5 contas genéricas com a SENHA_INICIAL do .env (sem a senha, só avisa).
+php artisan usuarios:iniciais --somente-sem-usuarios --no-interaction || echo "::warning::Contas iniciais não criadas: falta SENHA_INICIAL em multmec-app/.env."
 
 # JS do Livewire estático e minificado em public/vendor/livewire (antes de copiar a pasta pública).
 php artisan livewire:publish --assets --no-interaction >/dev/null

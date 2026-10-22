@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Hash;
  */
 class CreateInitialUsers extends Command
 {
-    protected $signature = 'usuarios:iniciais';
+    protected $signature = 'usuarios:iniciais {--somente-sem-usuarios : só cria se ainda não houver nenhum usuário (publicação automática)}';
 
     protected $description = 'Cria as contas genéricas (gestor1, gestor2, atendimento, mecanico1, mecanico2) com a SENHA_INICIAL do .env';
 
@@ -31,6 +31,13 @@ class CreateInitialUsers extends Command
 
     public function handle(): int
     {
+        // Na publicação: só na primeira vez. Depois que o gestor trocar nomes e e-mails, não recria as genéricas.
+        if ($this->option('somente-sem-usuarios') && User::query()->exists()) {
+            $this->line('Usuários já existem: nada a criar.');
+
+            return self::SUCCESS;
+        }
+
         $password = (string) config('auth.initial_password');
 
         if (mb_strlen($password) < 8) {

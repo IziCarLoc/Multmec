@@ -114,4 +114,14 @@ class UserManagementTest extends TestCase
         $this->assertTrue(Hash::check('senha-de-teste', $mecanico->password));
         $this->assertFalse($mecanico->must_change_password);
     }
+
+    public function test_na_publicacao_as_contas_iniciais_so_nascem_com_o_banco_vazio(): void
+    {
+        config(['auth.initial_password' => 'senha-de-teste']);
+        User::factory()->gestor()->create(['email' => 'real@exemplo.test']);
+
+        $this->artisan('usuarios:iniciais', ['--somente-sem-usuarios' => true])->assertSuccessful();
+
+        $this->assertSame(1, User::query()->count(), 'com usuário real cadastrado, não recria as genéricas');
+    }
 }

@@ -95,13 +95,11 @@ ssh -i ~/.ssh/infrasafecar_deploy -p 65002 u196070522@82.25.67.134 'bash domains
    - Ela cria o `multmec-app/.env` com uma chave nova e deixa o site em manutenção, porque ainda falta o banco.
    - No **Gerenciador de arquivos** do hPanel, abra `domains/izicarlocadora.com/multmec-app/.env` e preencha `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` e `SENHA_INICIAL`.
    - Publique de novo: no GitHub, Actions → Sistema de OS → Run workflow, na `main`.
-6. **Contas iniciais**, por SSH (ou pelo Terminal do hPanel), uma vez:
-
-   ```bash
-   cd ~/domains/izicarlocadora.com/multmec-app && php artisan usuarios:iniciais
-   ```
-
-   Cria `gestor1@multmec.local`, `gestor2@`, `atendimento@`, `mecanico1@` e `mecanico2@`, todas com a `SENHA_INICIAL`. Cada pessoa usa sempre a mesma conta. Nome e e-mail se trocam depois em Ajustes > Usuários, e cada um troca a senha em "Trocar minha senha".
+6. **Contas iniciais.** A publicação cria sozinha, só quando ainda não há nenhum usuário, as contas `gestor1@multmec.local`, `gestor2@`, `atendimento@`, `mecanico1@` e `mecanico2@`, todas com a `SENHA_INICIAL` do `.env`.
+   - Cada pessoa usa sempre a mesma conta.
+   - O nome e o e-mail se trocam depois em Ajustes > Usuários.
+   - Cada pessoa troca a própria senha em "Trocar minha senha".
+   - À mão, por SSH: `php artisan usuarios:iniciais`.
 7. **hPanel → Avançado → Cron Jobs**, duas linhas (troque `u196070522` se o usuário for outro):
 
    ```
