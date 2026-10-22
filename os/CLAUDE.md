@@ -26,7 +26,9 @@ Pasta `os/` do repositório Multmec. O financeiro em Node (`app/`) é outro sist
   - O celular reduz a foto para 1.600 px e calcula o SHA-256 (`window.sha256File`).
   - O servidor confere o hash e recusa a foto se ele faltar ou não bater.
   - O servidor guarda o arquivo recebido intacto e uma cópia carimbada (`App\Services\Media\PhotoStamper`, desenho do v12).
-  - Arquivos ficam no disco privado, servidos só por rota com login.
+  - Arquivos ficam no disco privado, servidos só por rota com login (`media.show`). Foto entra só por `App\Services\Media\MediaStore::storePhoto()`; na tela, `x-data="photoCapture"` + `take($event, 'slot')` chamam `savePhoto(slot, hash, horaDaFoto)` do componente. Foto refeita não se apaga (fica `replaced_at`).
+  - Marcas de avaria ficam em `damages.marks` (x/y de 0 a 1); o PDF desenha numa cópia (`DamageMarks`).
+- Vistoria de entrada (`App\Services\Inspections`): parte A em `EntryInspection`, parte B em `TechnicalChecklist`, envio/assinatura em `InspectionDelivery`. Só muda na etapa "Em vistoria"; se mudar depois de enviada/assinada, precisa enviar de novo (o resumo dos dados tem SHA-256).
 - Classes de campo e botão compartilhadas: `$inputClass`, `$labelClass`, `$btnPrimary`, `$btnSecondary`, `$cardClass`. Não redefinir na tela.
 - Janela: `<x-modal>`. CPF/CNPJ: `<x-document-input>`. Aviso: evento `toast`.
 - Textos da interface em português do Brasil, com a linguagem da oficina (OS, orçamento, conferência, aceite). Cores: azul `brand` como destaque, grafite `plate` no cabeçalho, vermelho `stripe` só na faixa e nos alertas.

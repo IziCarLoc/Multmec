@@ -4,6 +4,8 @@ namespace App\Services\Orders;
 
 use App\Enums\Stage;
 use App\Models\ServiceOrder;
+use App\Services\Inspections\EntryInspection;
+use App\Services\Inspections\TechnicalChecklist;
 
 /**
  * "Falta para avançar": o que precisa estar preenchido para a OS ir para a etapa. A tela mostra esta lista
@@ -13,6 +15,11 @@ use App\Models\ServiceOrder;
  */
 final class StageGate
 {
+    public function __construct(
+        private readonly EntryInspection $inspection,
+        private readonly TechnicalChecklist $technical,
+    ) {}
+
     /**
      * @return list<array{label: string, tab: string, field: ?string}>
      */
@@ -26,6 +33,22 @@ final class StageGate
         };
 
         switch ($to) {
+            case Stage::EmDiagnostico:
+                if ($order->stage === Stage::EmVistoria) {
+                    // Parte A (atendimento), entrega ao cliente (WhatsApp ou assinatura) e parte B (mecânico).
+                    $missing = $this->inspection->missing($order);
+                    $need(
+                        $this->inspection->deliveredToCustomer($order),
+                        $this->inspection->changedAfterDelivery($order)
+                            ? 'Enviar a vistoria de novo ao cliente (ela mudou depois do envio ou da assinatura)'
+                            : 'Vistoria enviada ao cliente pelo WhatsApp ou assinada na tela',
+                        'vistoria',
+                        'entrega',
+                    );
+                    $missing = array_merge($missing, $this->technical->missing($order));
+                }
+                break;
+
             case Stage::AguardandoCotacao:
             case Stage::AguardandoAprovacao:
                 if ($order->stage === Stage::EmDiagnostico) {

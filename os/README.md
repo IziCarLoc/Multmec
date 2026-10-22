@@ -18,7 +18,8 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 |---|---|---|
 | 0 | Acesso com e-mail e senha ("manter conectado"), perfis Gestor / Atendimento / Mecânico, usuários com senha provisória, Ajustes (oficina, numeração, regras, textos dos termos), Saúde do sistema com teste da hospedagem, app instalável no celular | Pronto |
 | 1 | Clientes e veículos (busca por placa, frota Izi vinda do Gestão), fornecedores e prestadores, OS com etapas, travas, histórico e volta pelo gestor, quadro, lista e avisos por perfil, publicação automática | Pronto |
-| 2 a 6 | Vistoria com fotos, diagnóstico, cotação, orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
+| 2 | Fotos pela câmera com hash conferido, original intacto, carimbo e miniatura; vistoria parte A (fotos guiadas, painel, acessórios, avarias marcadas na foto, autorizações, quem aprova) e parte B (14 itens); PDF da vistoria; envio pelo WhatsApp em dois toques ou assinatura na tela | Pronto |
+| 3 a 6 | Diagnóstico, cotação, orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
 | 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
 
 ## Rodar no computador

@@ -51,6 +51,19 @@ class ServiceOrder extends Model
         'cancel_reason',
         'cancelled_at',
         'created_by',
+        'dashboard_lights',
+        'belongings',
+        'has_spare_tire',
+        'has_jack',
+        'has_triangle',
+        'has_wheel_wrench',
+        'no_visible_damage',
+        'inspection_sent_at',
+        'inspection_sent_by',
+        'inspection_sent_via',
+        'inspection_pdf_path',
+        'inspection_pdf_sha256',
+        'inspection_snapshot_sha256',
     ];
 
     protected function casts(): array
@@ -70,6 +83,12 @@ class ServiceOrder extends Model
             'has_wheel_work' => 'boolean',
             'requires_test_drive' => 'boolean',
             'cancelled_at' => 'datetime',
+            'has_spare_tire' => 'boolean',
+            'has_jack' => 'boolean',
+            'has_triangle' => 'boolean',
+            'has_wheel_wrench' => 'boolean',
+            'no_visible_damage' => 'boolean',
+            'inspection_sent_at' => 'datetime',
         ];
     }
 
@@ -106,6 +125,33 @@ class ServiceOrder extends Model
     public function transitions(): HasMany
     {
         return $this->hasMany(StageTransition::class)->orderBy('id');
+    }
+
+    /** Fotos e vídeos em uso (as refeitas ficam guardadas fora desta lista). */
+    public function media(): HasMany
+    {
+        return $this->hasMany(Media::class)->whereNull('replaced_at')->orderBy('id');
+    }
+
+    public function damages(): HasMany
+    {
+        return $this->hasMany(Damage::class)->orderBy('id');
+    }
+
+    public function checklistItems(): HasMany
+    {
+        return $this->hasMany(OrderChecklistItem::class)->orderBy('position')->orderBy('id');
+    }
+
+    public function consents(): HasMany
+    {
+        return $this->hasMany(Consent::class)->orderBy('id');
+    }
+
+    /** Pasta dos arquivos desta OS no disco privado. */
+    public function storageDir(): string
+    {
+        return 'os/'.($this->unit?->code ?? 'U'.$this->unit_id).'-'.$this->number;
     }
 
     /** "OS 1190": o número como a oficina fala (sem zeros à esquerda, igual ao sistema atual). */

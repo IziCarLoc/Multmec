@@ -10,6 +10,7 @@ use App\Services\Orders\StageGate;
 use App\Services\Orders\StageMachine;
 use App\Support\Phone;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -55,6 +56,18 @@ new class extends Component
     public function mount(ServiceOrder $order): void
     {
         $this->order = $order;
+        $this->fillFromOrder();
+
+        // Na etapa da vistoria, a tela já abre nela.
+        if ($order->stage === Stage::EmVistoria && ! request()->has('aba')) {
+            $this->tab = 'vistoria';
+        }
+    }
+
+    /** A vistoria (componente de dentro) mudou algo: atualiza o "Falta para avançar". */
+    #[On('order-updated')]
+    public function refreshOrder(): void
+    {
         $this->fillFromOrder();
     }
 
@@ -124,6 +137,10 @@ new class extends Component
 
         $done = $this->attempt(fn () => $machine->move($this->order, Stage::from($this->loadedStage), $target, auth()->user(), $this->needsReason($target) ? $this->reason : null));
         $this->afterAction($done, 'OS em "'.$target->label().'".');
+
+        if ($done && $target === Stage::EmVistoria) {
+            $this->tab = 'vistoria';
+        }
     }
 
     public function openBack(): void
@@ -216,7 +233,7 @@ new class extends Component
 @php
     $user = auth()->user();
     $editable = ! $order->stage->isFinal();
-    $tabs = ['resumo' => 'Resumo', 'problema' => 'Problema', 'historico' => 'Histórico'];
+    $tabs = ['resumo' => 'Resumo', 'vistoria' => 'Vistoria', 'problema' => 'Problema', 'historico' => 'Histórico'];
 @endphp
 
 <div class="space-y-4">
@@ -276,7 +293,7 @@ new class extends Component
                         <p class="mt-2 text-sm font-semibold text-gray-700 dark:text-gray-200">Falta para avançar:</p>
                         <ul class="mt-1 space-y-1 text-sm" data-test="falta">
                             @foreach ($missing as $item)
-                                <li><button type="button" wire:click="$set('tab', '{{ $item['tab'] }}')" class="text-left text-red-700 dark:text-red-300 hover:underline"><i class="fas fa-circle-exclamation"></i> {{ $item['label'] }}</button></li>
+                                <li><button type="button" wire:click="$set('tab', '{{ $item['tab'] }}')" x-on:click="setTimeout(() => document.getElementById('{{ $item['field'] }}')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400)" class="text-left text-red-700 dark:text-red-300 hover:underline"><i class="fas fa-circle-exclamation"></i> {{ $item['label'] }}</button></li>
                             @endforeach
                         </ul>
                     @endif
@@ -370,6 +387,8 @@ new class extends Component
                 </div>
             </div>
         </form>
+    @elseif ($tab === 'vistoria')
+        <livewire:pages::auth.orders.inspection :order="$order" :key="'vistoria-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'problema')
         <form wire:submit="saveProblem" class="{{ $cardClass }} p-4 space-y-4">
             <div>

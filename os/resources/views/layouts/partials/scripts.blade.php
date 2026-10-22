@@ -53,6 +53,25 @@
         return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
     }
 
+    // Reduz a foto no próprio aparelho (lado maior = maxSide, JPEG) antes de enviar: chega rápido mesmo com sinal
+    // fraco. Formato que o navegador não lê (alguns HEIC) vai como está e o servidor reduz.
+    window.downscalePhoto = async function (file, maxSide = 1600) {
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+        const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+        const w = Math.max(1, Math.round(bitmap.width * scale))
+        const h = Math.max(1, Math.round(bitmap.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
+        bitmap.close && bitmap.close()
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+        if (! blob) throw new Error('canvas')
+        return new File([blob], 'foto.jpg', { type: 'image/jpeg', lastModified: file.lastModified })
+    }
+
+    window.toastError = (message) => window.dispatchEvent(new CustomEvent('toast', { detail: { message, type: 'error' } }))
+
     document.addEventListener('alpine:init', () => {
         // Campo de dinheiro em centavos: x-data="moneyInput($wire.entangle('campo'))". O texto fica como a pessoa
         // digitou até sair do campo, quando vira 1.234,56; o valor em centavos acompanha cada tecla.
@@ -75,6 +94,139 @@
                 this.focused = false
                 this.text = window.moneyBr.format(this.cents)
                 e.target.value = this.text
+            },
+        }))
+
+        // Câmera do celular: reduz a foto, calcula o SHA-256, envia ($wire.upload) e manda o componente guardar
+        // (`savePhoto(slot, hash, horaDaFoto)`). O servidor confere o hash e carimba com a hora dele.
+        Alpine.data('photoCapture', () => ({
+            busy: null,
+            async take(event, slot) {
+                const original = event.target.files && event.target.files[0]
+                event.target.value = ''
+                if (! original) return
+                this.busy = slot
+                let file = original
+                try { file = await window.downscalePhoto(original) } catch (e) { /* manda o original */ }
+                const hash = await window.sha256File(file)
+                if (! hash) {
+                    this.busy = null
+                    window.toastError('Este navegador não conferiu a foto. Abra o sistema pelo endereço https.')
+                    return
+                }
+                this.$wire.upload('upload', file,
+                    () => { this.$wire.savePhoto(slot, hash, original.lastModified || null).finally(() => { this.busy = null }) },
+                    () => { this.busy = null; window.toastError('Não foi possível enviar a foto. Verifique a conexão e tente de novo.') },
+                )
+            },
+        }))
+
+        // Assinatura com o dedo num quadro; `save()` devolve o PNG (data URL) para o componente.
+        Alpine.data('signaturePad', () => ({
+            drawing: false,
+            dirty: false,
+            ctx: null,
+            init() {
+                const canvas = this.$refs.canvas
+                const ratio = window.devicePixelRatio || 1
+                const rect = canvas.getBoundingClientRect()
+                canvas.width = Math.round(rect.width * ratio)
+                canvas.height = Math.round(rect.height * ratio)
+                this.ctx = canvas.getContext('2d')
+                this.ctx.scale(ratio, ratio)
+                this.ctx.lineWidth = 2.5
+                this.ctx.lineCap = 'round'
+                this.ctx.lineJoin = 'round'
+                this.ctx.strokeStyle = '#0d1b26'
+            },
+            pos(event) {
+                const rect = this.$refs.canvas.getBoundingClientRect()
+                return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+            },
+            start(event) {
+                this.drawing = true
+                const p = this.pos(event)
+                this.ctx.beginPath()
+                this.ctx.moveTo(p.x, p.y)
+                this.ctx.lineTo(p.x + 0.1, p.y + 0.1)
+                this.ctx.stroke()
+                this.dirty = true
+            },
+            move(event) {
+                if (! this.drawing) return
+                const p = this.pos(event)
+                this.ctx.lineTo(p.x, p.y)
+                this.ctx.stroke()
+            },
+            end() { this.drawing = false },
+            clear() {
+                const canvas = this.$refs.canvas
+                this.ctx.save()
+                this.ctx.setTransform(1, 0, 0, 1, 0, 0)
+                this.ctx.clearRect(0, 0, canvas.width, canvas.height)
+                this.ctx.restore()
+                this.dirty = false
+            },
+            dataUrl() { return this.dirty ? this.$refs.canvas.toDataURL('image/png') : null },
+        }))
+
+        // Marcas de avaria: toque na foto põe uma bolinha numerada; tipo e descrição de cada uma; "Salvar"
+        // manda a lista inteira (x e y de 0 a 1 em relação à foto carimbada).
+        Alpine.data('damageMarker', (initial, types) => ({
+            marks: JSON.parse(JSON.stringify(initial || [])),
+            types,
+            place(event) {
+                const rect = this.$refs.img.getBoundingClientRect()
+                const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+                const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+                this.marks.push({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), type: 'Risco', desc: '' })
+            },
+            remove(index) { this.marks.splice(index, 1) },
+        }))
+
+        // Enviar a vistoria pelo WhatsApp em dois toques: "Preparar" (o servidor gera e guarda o PDF) e "Enviar"
+        // (abre o compartilhar do celular com o PDF). Sem compartilhar arquivo (computador), baixa o PDF e abre o
+        // WhatsApp com a mensagem, e a pessoa confirma que enviou.
+        Alpine.data('shareDocument', () => ({
+            file: null,
+            text: '',
+            link: null,
+            busy: false,
+            async prepare() {
+                this.busy = true
+                try {
+                    const res = await this.$wire.preparePdf()
+                    if (! res) return
+                    const bytes = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0))
+                    this.file = new File([bytes], res.name, { type: 'application/pdf' })
+                    this.text = res.text
+                    this.link = res.link
+                } finally {
+                    this.busy = false
+                }
+            },
+            canShareFile() {
+                return !! (this.file && navigator.canShare && navigator.canShare({ files: [this.file] }))
+            },
+            async send() {
+                if (! this.file) return
+                if (this.canShareFile()) {
+                    try {
+                        await navigator.share({ files: [this.file], text: this.text })
+                        await this.$wire.confirmSent('compartilhar')
+                        this.file = null
+                    } catch (e) {
+                        if (! e || e.name !== 'AbortError') window.toastError('Não deu para abrir o compartilhar. Use "Baixar PDF" e envie pelo WhatsApp.')
+                    }
+                    return
+                }
+                const a = document.createElement('a')
+                a.href = URL.createObjectURL(this.file)
+                a.download = this.file.name
+                a.click()
+                if (this.link) window.open(this.link, '_blank', 'noopener')
+                this.file = null
+                this.$wire.set('askSentConfirmation', true)
             },
         }))
 

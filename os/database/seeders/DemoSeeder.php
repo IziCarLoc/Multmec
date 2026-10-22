@@ -6,14 +6,20 @@ use App\Enums\Role;
 use App\Enums\Stage;
 use App\Enums\SupplierKind;
 use App\Models\ServiceOrder;
+use App\Models\ServiceOrder as Order;
 use App\Models\Supplier;
 use App\Models\Unit;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Inspections\EntryInspection;
+use App\Services\Inspections\InspectionDelivery;
+use App\Services\Inspections\TechnicalChecklist;
+use App\Services\Media\MediaStore;
 use App\Services\Orders\OrderOpener;
 use App\Services\Orders\StageMachine;
 use App\Services\Registry\IziFleet;
 use Illuminate\Database\Seeder;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
 
@@ -102,7 +108,45 @@ class DemoSeeder extends Seeder
 
         $machine = app(StageMachine::class);
         $izi = $machine->move($izi, Stage::Aberta, Stage::EmVistoria, $giovana);
-        $izi = $machine->move($izi, Stage::EmVistoria, Stage::EmDiagnostico, $giovana);
+        $this->inspect($izi, $giovana, $robson);
+        $izi = $machine->move($izi->fresh(), Stage::EmVistoria, Stage::EmDiagnostico, $giovana);
         $izi->update(['responsible_id' => $robson->id]);
+    }
+
+    /** Vistoria de exemplo completa: fotos geradas na hora (desenho simples), parte A, parte B e envio. */
+    private function inspect(Order $order, User $giovana, User $robson): void
+    {
+        $store = app(MediaStore::class);
+
+        foreach (EntryInspection::PHOTOS as $position => $label) {
+            $file = $this->fakePhoto($label);
+            $store->storePhoto($order, EntryInspection::kindFor($position), $file, hash_file('sha256', $file->getRealPath()), now()->getTimestampMs(), $giovana, ['position' => $position]);
+        }
+
+        app(EntryInspection::class)->update($order, [
+            'km_in' => 61230, 'fuel_in' => '1/4', 'dashboard_lights' => 'Luz do óleo piscando', 'belongings' => 'Cabo de carregador no porta-luvas',
+            'has_spare_tire' => true, 'has_jack' => true, 'has_triangle' => true, 'has_wheel_wrench' => true,
+            'no_visible_damage' => true, 'test_drive_authorized' => true, 'diagnosis_charged' => false, 'approver_kind' => 'izi',
+        ], $giovana);
+
+        $checklist = app(TechnicalChecklist::class);
+
+        foreach ($checklist->itemsFor($order) as $item) {
+            $checklist->answer($item, $item->is_fluid ? ($item->label === 'Óleo do motor' ? 'media' : 'ideal') : 'ok', null, $robson);
+        }
+
+        app(InspectionDelivery::class)->markSent($order->fresh(), 'manual', $giovana);
+    }
+
+    private function fakePhoto(string $label): UploadedFile
+    {
+        $image = imagecreatetruecolor(1600, 1200);
+        imagefill($image, 0, 0, imagecolorallocate($image, 0xB8, 0xC4, 0xCE));
+        imagefilledrectangle($image, 300, 500, 1300, 900, imagecolorallocate($image, 0x7A, 0x86, 0x90));
+        imagestring($image, 5, 40, 40, 'FOTO DE EXEMPLO: '.iconv('UTF-8', 'ASCII//TRANSLIT', $label), imagecolorallocate($image, 0x1D, 0x23, 0x28));
+        $path = tempnam(sys_get_temp_dir(), 'demo').'.jpg';
+        imagejpeg($image, $path, 80);
+
+        return new UploadedFile($path, 'exemplo.jpg', 'image/jpeg', null, true);
     }
 }

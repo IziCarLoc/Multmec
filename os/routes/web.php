@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\HealthCheckController;
+use App\Http\Controllers\InspectionPdfController;
+use App\Http\Controllers\MediaController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -25,6 +27,10 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
     Route::livewire('/os', 'pages::auth.orders.index')->name('orders.index');
     Route::livewire('/os/nova', 'pages::auth.orders.create')->middleware('can:atendimento')->name('orders.create');
     Route::livewire('/os/{order}', 'pages::auth.orders.show')->whereNumber('order')->name('orders.show');
+    Route::get('/os/{order}/vistoria.pdf', [InspectionPdfController::class, 'show'])->whereNumber('order')->name('orders.inspection.pdf');
+
+    // Fotos e vídeos do disco privado: só com login.
+    Route::get('/midia/{media}/{variant?}', [MediaController::class, 'show'])->whereNumber('media')->name('media.show');
 
     Route::middleware('can:atendimento')->group(function () {
         Route::livewire('/clientes-e-veiculos', 'pages::auth.registry.index')->name('registry');

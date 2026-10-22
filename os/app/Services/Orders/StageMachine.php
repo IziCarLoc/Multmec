@@ -6,6 +6,7 @@ use App\Enums\Stage;
 use App\Models\ServiceOrder;
 use App\Models\StageTransition;
 use App\Models\User;
+use App\Services\Inspections\TechnicalChecklist;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -197,6 +198,11 @@ final class StageMachine
                 'user_id' => $by->id,
                 'reason' => $reason,
             ]);
+
+            // Entrou em vistoria: o checklist técnico (parte B) já fica pronto para o mecânico.
+            if ($to === Stage::EmVistoria) {
+                app(TechnicalChecklist::class)->itemsFor($fresh);
+            }
 
             return $fresh;
         });
