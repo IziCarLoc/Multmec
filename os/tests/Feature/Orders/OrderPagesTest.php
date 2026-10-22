@@ -93,6 +93,7 @@ class OrderPagesTest extends TestCase
     public function test_avancar_pela_tela_e_falta_para_avancar(): void
     {
         $order = $this->order(Stage::EmDiagnostico);
+        $this->item($order);
         $this->actingAs(User::factory()->mecanico()->create());
 
         Livewire::test('pages::auth.orders.show', ['order' => $order])

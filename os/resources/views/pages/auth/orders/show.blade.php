@@ -13,12 +13,17 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 new class extends Component
 {
     use RunsDomainActions;
+    use WithFileUploads;
 
     public ServiceOrder $order;
+
+    /** Vídeo que acabou de subir ($wire.upload). */
+    public $upload;
 
     /** Etapa que a tela está mostrando: vai junto em cada ação (duas pessoas ao mesmo tempo). */
     public string $loadedStage = '';
@@ -218,6 +223,38 @@ new class extends Component
         }
     }
 
+    #[Computed]
+    public function videos()
+    {
+        return $this->order->media()->where('kind', \App\Enums\MediaKind::Video->value)->with('user')->get();
+    }
+
+    /** Vídeo do diagnóstico (mecânico): até 20 MB, com o hash conferido. */
+    public function saveVideo(?string $hash, ?int $takenAt, \App\Services\Media\MediaStore $store): void
+    {
+        if (! $this->upload) {
+            return;
+        }
+
+        $this->validate(['upload' => 'file|max:20480'], ['upload.max' => 'O vídeo passa de 20 MB.']);
+        $user = auth()->user();
+
+        $done = $this->attempt(function () use ($hash, $takenAt, $store, $user) {
+            if (! $user->can('oficina') || ! in_array($this->order->stage, [Stage::EmDiagnostico, Stage::EmExecucao], true)) {
+                throw new DomainException('Vídeo é do mecânico, no diagnóstico ou na execução.');
+            }
+
+            return $store->storeVideo($this->order, $this->upload, $hash, $takenAt, $user, 'Diagnóstico');
+        });
+
+        $this->reset('upload');
+
+        if ($done) {
+            unset($this->videos);
+            $this->dispatch('toast', message: 'Vídeo guardado.', type: 'success');
+        }
+    }
+
     public function setResponsible(mixed $userId, OrderEditor $editor): void
     {
         $userId = (int) $userId ?: null;
@@ -233,7 +270,14 @@ new class extends Component
 @php
     $user = auth()->user();
     $editable = ! $order->stage->isFinal();
-    $tabs = ['resumo' => 'Resumo', 'vistoria' => 'Vistoria', 'problema' => 'Problema', 'historico' => 'Histórico'];
+    $tabs = array_filter([
+        'resumo' => 'Resumo',
+        'vistoria' => 'Vistoria',
+        'problema' => 'Diagnóstico',
+        'itens' => 'Peças e serviços',
+        'cotacao' => $user->can('atendimento') ? 'Cotação' : null,
+        'historico' => 'Histórico',
+    ]);
 @endphp
 
 <div class="space-y-4">
@@ -313,9 +357,10 @@ new class extends Component
     @endif
 
     {{-- Abas --}}
-    <div class="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
+    {{-- No celular as abas rolam de lado; a aba aberta fica à vista. --}}
+    <div class="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-700" role="tablist" x-data x-init="const a = $el.querySelector('[aria-selected=true]'); if (a && a.offsetLeft + a.offsetWidth > $el.clientWidth) $el.scrollLeft = a.offsetLeft - 16">
         @foreach ($tabs as $key => $label)
-            <button type="button" wire:click="$set('tab', '{{ $key }}')" @class(['px-4 min-h-11 font-display font-semibold uppercase tracking-wide border-b-[3px] whitespace-nowrap', 'border-brand-600 text-brand-700 dark:text-brand-300' => $tab === $key, 'border-transparent text-gray-500' => $tab !== $key]) data-test="aba-{{ $key }}">{{ $label }}</button>
+            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $key }}')" @class(['px-4 min-h-11 font-display font-semibold uppercase tracking-wide border-b-[3px] whitespace-nowrap', 'border-brand-600 text-brand-700 dark:text-brand-300' => $tab === $key, 'border-transparent text-gray-500' => $tab !== $key]) data-test="aba-{{ $key }}">{{ $label }}</button>
         @endforeach
     </div>
 
@@ -389,6 +434,10 @@ new class extends Component
         </form>
     @elseif ($tab === 'vistoria')
         <livewire:pages::auth.orders.inspection :order="$order" :key="'vistoria-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'itens')
+        <livewire:pages::auth.orders.items :order="$order" :key="'itens-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'cotacao' && $user->can('atendimento'))
+        <livewire:pages::auth.orders.quote :order="$order" :key="'cotacao-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'problema')
         <form wire:submit="saveProblem" class="{{ $cardClass }} p-4 space-y-4">
             <div>
@@ -403,6 +452,31 @@ new class extends Component
                 <div class="flex justify-end"><button type="submit" class="{{ $btnPrimary }}" data-test="salvar-problema"><i class="fas fa-check"></i> Salvar</button></div>
             @endif
         </form>
+
+        <section class="{{ $cardClass }} p-4 space-y-3" x-data="photoCapture" data-test="videos">
+            <div class="flex flex-wrap items-center gap-2">
+                <h2 class="font-display font-bold text-xl uppercase tracking-wide mr-auto">Vídeos</h2>
+                @if ($user->can('oficina') && in_array($order->stage, [Stage::EmDiagnostico, Stage::EmExecucao], true))
+                    <label class="{{ $btnSecondary }} cursor-pointer" data-test="camera-video">
+                        <input type="file" accept="video/*" capture="environment" class="sr-only" x-on:change="takeVideo($event)">
+                        <span x-show="busy !== 'video'"><i class="fas fa-video"></i> Gravar vídeo (até 20 MB)</span>
+                        <span x-show="busy === 'video'" x-cloak><i class="fas fa-spinner fa-spin"></i> Enviando <span x-text="progress + '%'"></span></span>
+                    </label>
+                @endif
+            </div>
+            @forelse ($this->videos as $video)
+                <div class="space-y-1" wire:key="v-{{ $video->id }}">
+                    <div class="relative overflow-hidden rounded-lg bg-black">
+                        <video controls playsinline preload="metadata" src="{{ $video->url() }}" class="w-full max-h-[60vh]"></video>
+                        {{-- OS, placa e hora do servidor por cima (o arquivo não é alterado). --}}
+                        <div class="pointer-events-none absolute left-2 top-2 rounded bg-black/70 px-2 py-1 font-mono text-[11px] text-white">{{ $order->label() }} · {{ $order->vehicle->plateFormatted() }} · {{ $video->received_at->format('d/m/Y H:i:s') }}</div>
+                    </div>
+                    <p class="text-xs text-gray-500">{{ $video->user?->short_name }} · {{ $video->size < 1048576 ? max(1, round($video->size / 1024)).' KB' : number_format($video->size / 1048576, 1, ',', '.').' MB' }} · <a href="{{ $video->url('original') }}" class="text-brand-600 hover:underline">baixar</a> · SHA-256 {{ substr($video->original_sha256, 0, 12) }}…</p>
+                </div>
+            @empty
+                <p class="text-sm text-gray-500">Nenhum vídeo. Vídeo gravado no iPhone pode não tocar no computador: use "baixar".</p>
+            @endforelse
+        </section>
     @else
         <div class="{{ $cardClass }} divide-y divide-gray-100 dark:divide-gray-700" data-test="historico">
             @foreach ($this->transitions as $transition)

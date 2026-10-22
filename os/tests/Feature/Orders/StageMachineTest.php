@@ -61,6 +61,7 @@ class StageMachineTest extends TestCase
     public function test_nao_avanca_sem_os_obrigatorios(): void
     {
         $order = $this->order(Stage::EmDiagnostico, ['diagnosis' => null]);
+        $this->item($order);
         $robson = User::factory()->mecanico()->create();
 
         try {

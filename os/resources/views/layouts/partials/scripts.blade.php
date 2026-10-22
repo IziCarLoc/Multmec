@@ -119,6 +119,30 @@
                     () => { this.busy = null; window.toastError('Não foi possível enviar a foto. Verifique a conexão e tente de novo.') },
                 )
             },
+            // Vídeo: até 20 MB (conferido aqui antes de enviar), sem reduzir; o servidor confere o hash.
+            async takeVideo(event, maxBytes = 20 * 1024 * 1024) {
+                const file = event.target.files && event.target.files[0]
+                event.target.value = ''
+                if (! file) return
+                if (file.size > maxBytes) {
+                    window.toastError('O vídeo tem ' + (file.size / 1048576).toFixed(1).replace('.', ',') + ' MB: o limite é 20 MB. Grave um trecho mais curto.')
+                    return
+                }
+                this.busy = 'video'
+                this.progress = 0
+                const hash = await window.sha256File(file)
+                if (! hash) {
+                    this.busy = null
+                    window.toastError('Este navegador não conferiu o vídeo. Abra o sistema pelo endereço https.')
+                    return
+                }
+                this.$wire.upload('upload', file,
+                    () => { this.$wire.saveVideo(hash, file.lastModified || null).finally(() => { this.busy = null }) },
+                    () => { this.busy = null; window.toastError('Não foi possível enviar o vídeo. Verifique a conexão e tente de novo.') },
+                    (e) => { this.progress = e.detail.progress },
+                )
+            },
+            progress: 0,
         }))
 
         // Assinatura com o dedo num quadro; `save()` devolve o PNG (data URL) para o componente.

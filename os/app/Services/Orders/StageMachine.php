@@ -67,12 +67,22 @@ final class StageMachine
      */
     public function targetsFor(ServiceOrder $order, User $user): array
     {
-        return collect(self::FORWARD[$order->stage->value] ?? [])
+        $targets = collect(self::FORWARD[$order->stage->value] ?? [])
             ->filter(fn (string $ability) => $this->can($user, $ability))
             ->keys()
-            ->map(fn (string $to) => Stage::from($to))
-            ->values()
-            ->all();
+            ->map(fn (string $to) => Stage::from($to));
+
+        // No diagnóstico só aparece o caminho que vale: com peça a cotar (ou sem item ainda) vai para a
+        // cotação; só serviço, peça do cliente ou do estoque vai direto para o orçamento.
+        if ($order->stage === Stage::EmDiagnostico) {
+            $items = $order->items()->get();
+            $skip = $items->isNotEmpty() && $items->doesntContain(fn ($item) => $item->toQuote())
+                ? Stage::AguardandoCotacao
+                : Stage::AguardandoAprovacao;
+            $targets = $targets->reject(fn (Stage $to) => $to === $skip);
+        }
+
+        return $targets->values()->all();
     }
 
     public static function actionLabel(Stage $from, Stage $to): string

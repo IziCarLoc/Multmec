@@ -110,6 +110,54 @@ final class MediaStore
         });
     }
 
+    /** Vídeo até 20 MB. */
+    public const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+
+    /**
+     * Vídeo do diagnóstico ou da execução: confere o hash e guarda como chegou (sem carimbo; a tela mostra a OS,
+     * a placa e a hora do servidor por cima). O servidor não converte: vídeo de iPhone pode só baixar no computador.
+     */
+    public function storeVideo(ServiceOrder $order, UploadedFile $file, ?string $clientHash, ?int $takenAtMs, User $by, ?string $caption = null): Media
+    {
+        $path = $file->getRealPath();
+        $mime = (string) $file->getMimeType();
+
+        if (! str_starts_with($mime, 'video/')) {
+            throw new DomainException('O arquivo não é um vídeo.');
+        }
+
+        if ($file->getSize() > self::MAX_VIDEO_BYTES) {
+            throw new DomainException('O vídeo passa de 20 MB. Grave um trecho mais curto.');
+        }
+
+        $this->assertHash($path, $clientHash);
+        $order->loadMissing('unit');
+        $receivedAt = now();
+        $extension = match ($mime) {
+            'video/quicktime' => 'mov',
+            'video/webm' => 'webm',
+            'video/3gpp' => '3gp',
+            default => 'mp4',
+        };
+        $relative = $order->storageDir().'/video-'.$receivedAt->format('Ymd-His').'-'.Str::lower(Str::random(6)).'.'.$extension;
+        Storage::disk(Media::DISK)->putFileAs(dirname($relative), $file, basename($relative));
+        $takenAt = $this->takenAt($takenAtMs, $receivedAt);
+
+        return Media::create([
+            'service_order_id' => $order->id,
+            'kind' => MediaKind::Video,
+            'caption' => mb_substr(trim((string) $caption), 0, 160) ?: null,
+            'original_path' => $relative,
+            'original_sha256' => strtolower((string) $clientHash),
+            'mime' => $mime,
+            'size' => (int) $file->getSize(),
+            'taken_at' => $takenAt,
+            'received_at' => $receivedAt,
+            'is_stale' => $takenAt !== null && $takenAt->lt($receivedAt->copy()->subMinutes(self::STALE_MINUTES)),
+            'user_id' => $by->id,
+        ]);
+    }
+
     /** Sem hash ou com hash diferente do arquivo que chegou: a foto não entra. */
     public function assertHash(string $path, ?string $clientHash): void
     {

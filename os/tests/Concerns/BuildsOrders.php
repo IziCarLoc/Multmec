@@ -4,6 +4,7 @@ namespace Tests\Concerns;
 
 use App\Enums\Stage;
 use App\Models\Customer;
+use App\Models\OrderItem;
 use App\Models\ServiceOrder;
 use App\Models\StageTransition;
 use App\Models\Unit;
@@ -58,5 +59,20 @@ trait BuildsOrders
         StageTransition::create(['service_order_id' => $order->id, 'to_stage' => Stage::Aberta]);
 
         return $order;
+    }
+
+    /** Item lançado direto (sem passar pelo OrderItems): peça a cotar ou serviço com horas. */
+    protected function item(ServiceOrder $order, string $kind = OrderItem::KIND_PART, array $attributes = []): OrderItem
+    {
+        return OrderItem::create($attributes + [
+            'service_order_id' => $order->id,
+            'kind' => $kind,
+            'description' => $kind === OrderItem::KIND_PART ? 'Bieleta dianteira esquerda' : 'Troca da bieleta',
+            'quantity' => 1,
+            'hours' => $kind === OrderItem::KIND_SERVICE ? 0.5 : null,
+            'needs_quote' => $kind === OrderItem::KIND_PART,
+            'requires_photos' => $kind === OrderItem::KIND_PART,
+            'position' => (int) $order->items()->max('position') + 1,
+        ]);
     }
 }

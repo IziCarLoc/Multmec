@@ -14,6 +14,7 @@ use App\Models\Vehicle;
 use App\Services\Inspections\EntryInspection;
 use App\Services\Inspections\InspectionDelivery;
 use App\Services\Inspections\TechnicalChecklist;
+use App\Services\Items\OrderItems;
 use App\Services\Media\MediaStore;
 use App\Services\Orders\OrderOpener;
 use App\Services\Orders\StageMachine;
@@ -25,7 +26,8 @@ use RuntimeException;
 
 /**
  * Dados de exemplo para testar sem cadastrar nada (nunca em produção): 5 usuários, 3 fornecedores
- * (um deles prestador de serviço), um carro da frota Izi e 2 OS em etapas diferentes. Tudo inventado.
+ * (um deles prestador de serviço), um carro da frota Izi e 2 OS em etapas diferentes (a do carro Izi já com
+ * diagnóstico, peças e serviços, pronta para a cotação). Tudo inventado.
  *     php artisan db:seed --class=DemoSeeder
  * Senha de todos: multmec123 (e-mails @exemplo.test). Rodar de novo não duplica.
  */
@@ -110,7 +112,15 @@ class DemoSeeder extends Seeder
         $izi = $machine->move($izi, Stage::Aberta, Stage::EmVistoria, $giovana);
         $this->inspect($izi, $giovana, $robson);
         $izi = $machine->move($izi->fresh(), Stage::EmVistoria, Stage::EmDiagnostico, $giovana);
-        $izi->update(['responsible_id' => $robson->id]);
+        $izi->update(['responsible_id' => $robson->id, 'diagnosis' => 'Óleo abaixo do mínimo e sensor de pressão do óleo com defeito (por isso a luz pisca). Revisão dos 60 mil: troca do óleo e do filtro.']);
+
+        // Diagnóstico do mecânico: peças a cotar e serviços com horas (pronto para "Enviar para cotação").
+        $items = app(OrderItems::class);
+        $items->add($izi, 'peca', ['description' => 'Óleo 5W30 sintético', 'quantity' => 4, 'requires_photos' => false], $robson);
+        $items->add($izi, 'peca', ['description' => 'Filtro de óleo', 'preferred_brand' => 'Tecfil'], $robson);
+        $items->add($izi, 'peca', ['description' => 'Sensor de pressão do óleo', 'part_code' => 'EXEMPLO-123', 'quote_detail' => 'rosca 1/8'], $robson);
+        $items->add($izi, 'servico', ['description' => 'Troca de óleo e filtro', 'hours' => 0.5], $robson);
+        $items->add($izi, 'servico', ['description' => 'Troca do sensor de pressão do óleo', 'hours' => 0.5, 'priority' => 'necessario'], $robson);
     }
 
     /** Vistoria de exemplo completa: fotos geradas na hora (desenho simples), parte A, parte B e envio. */

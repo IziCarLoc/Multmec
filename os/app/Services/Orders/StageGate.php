@@ -6,6 +6,7 @@ use App\Enums\Stage;
 use App\Models\ServiceOrder;
 use App\Services\Inspections\EntryInspection;
 use App\Services\Inspections\TechnicalChecklist;
+use App\Services\Quotes\Quotations;
 
 /**
  * "Falta para avançar": o que precisa estar preenchido para a OS ir para a etapa. A tela mostra esta lista
@@ -18,6 +19,7 @@ final class StageGate
     public function __construct(
         private readonly EntryInspection $inspection,
         private readonly TechnicalChecklist $technical,
+        private readonly Quotations $quotations,
     ) {}
 
     /**
@@ -52,7 +54,25 @@ final class StageGate
             case Stage::AguardandoCotacao:
             case Stage::AguardandoAprovacao:
                 if ($order->stage === Stage::EmDiagnostico) {
+                    $items = $order->items()->get();
+                    $toQuote = $items->filter(fn ($item) => $item->toQuote());
+
                     $need(filled(trim((string) $order->diagnosis)), 'Diagnóstico (em linguagem de cliente)', 'problema', 'diagnosis');
+                    $need($items->isNotEmpty(), 'Ao menos uma peça ou serviço', 'itens', 'novo-item');
+
+                    foreach ($items->filter(fn ($item) => $item->isService() && (float) $item->hours <= 0) as $service) {
+                        $need(false, 'Horas estimadas: '.$service->description, 'itens', 'item-'.$service->id);
+                    }
+
+                    if ($items->isNotEmpty()) {
+                        $to === Stage::AguardandoCotacao
+                            ? $need($toQuote->isNotEmpty(), 'Nenhuma peça para cotar: use "Enviar para orçamento"', 'itens', null)
+                            : $need($toQuote->isEmpty(), 'Há peça para cotar: use "Enviar para cotação"', 'itens', null);
+                    }
+                }
+
+                if ($order->stage === Stage::AguardandoCotacao) {
+                    $missing = array_merge($missing, $this->quotations->missing($order));
                 }
                 break;
 

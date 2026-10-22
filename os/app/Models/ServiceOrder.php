@@ -148,6 +148,17 @@ class ServiceOrder extends Model
         return $this->hasMany(Consent::class)->orderBy('id');
     }
 
+    /** Peças e serviços, na ordem em que foram lançados. */
+    public function items(): HasMany
+    {
+        return $this->hasMany(OrderItem::class)->orderBy('position')->orderBy('id');
+    }
+
+    public function quoteRequests(): HasMany
+    {
+        return $this->hasMany(QuoteRequest::class)->orderBy('id');
+    }
+
     /** Pasta dos arquivos desta OS no disco privado. */
     public function storageDir(): string
     {
