@@ -1,10 +1,15 @@
 @php
     $user = auth()->user();
     $unit = \App\Models\Unit::default();
+    // O que está esperando por esta pessoa (contador ao lado de "Avisos").
+    $inboxCount = app(\App\Services\Orders\Inbox::class)->count($user);
     // Itens do menu: rota, rótulo, ícone e quem vê. Novas telas entram aqui.
     $items = array_values(array_filter([
-        ['route' => 'dashboard', 'label' => 'Ordens de serviço', 'icon' => 'fa-clipboard-list', 'active' => 'dashboard'],
-        $user->isGestor() ? ['route' => 'settings', 'label' => 'Ajustes', 'icon' => 'fa-gear', 'active' => 'settings*'] : null,
+        ['route' => 'dashboard', 'label' => 'OS', 'icon' => 'fa-clipboard-list', 'active' => ['dashboard', 'orders.*']],
+        ['route' => 'inbox', 'label' => 'Avisos', 'icon' => 'fa-bell', 'active' => ['inbox'], 'count' => $inboxCount],
+        $user->can('atendimento') ? ['route' => 'registry', 'label' => 'Clientes e veículos', 'icon' => 'fa-car', 'active' => ['registry']] : null,
+        $user->can('atendimento') ? ['route' => 'suppliers', 'label' => 'Fornecedores', 'icon' => 'fa-truck-field', 'active' => ['suppliers']] : null,
+        $user->isGestor() ? ['route' => 'settings', 'label' => 'Ajustes', 'icon' => 'fa-gear', 'active' => ['settings*']] : null,
     ]));
 @endphp
 <header class="sticky top-0 z-40 bg-gradient-to-b from-plate-2 to-plate text-plate-ink border-b-4 border-stripe shadow" style="padding-top: env(safe-area-inset-top, 0px)">
@@ -45,7 +50,7 @@
         </div>
         <nav class="flex gap-1 overflow-x-auto -mb-1" aria-label="Menu">
             @foreach ($items as $item)
-                @php($current = request()->routeIs($item['active']))
+                @php($current = request()->routeIs(...$item['active']))
                 <a href="{{ route($item['route']) }}"
                    @class([
                        'whitespace-nowrap px-3 py-2 font-display font-semibold text-[17px] uppercase tracking-wide border-b-[3px]',
@@ -54,6 +59,9 @@
                    ])
                    @if ($current) aria-current="page" @endif>
                     <i class="fas {{ $item['icon'] }} mr-1 text-sm"></i>{{ $item['label'] }}
+                    @if (($item['count'] ?? 0) > 0)
+                        <span class="ml-1 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-stripe px-1.5 font-sans text-xs font-bold text-white" data-test="contador-avisos">{{ $item['count'] }}</span>
+                    @endif
                 </a>
             @endforeach
         </nav>

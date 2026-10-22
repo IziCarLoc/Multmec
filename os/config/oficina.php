@@ -8,6 +8,10 @@ return [
     // Carros da frota Izi Car: até este valor (centavos) o Atendimento aprova; acima, só o gestor.
     'izi_approval_limit_cents' => 150000,
 
+    // Nome do cliente "frota Izi Car" (os carros da frota entram nele sozinhos) e o WhatsApp de quem aprova lá.
+    'izi_customer_name' => 'Izi Car Locadora',
+    'izi_whatsapp' => null,
+
     // Validade do orçamento em dias, contada do recebimento pelo cliente (CDC art. 40, §1º).
     'budget_validity_days' => 10,
 

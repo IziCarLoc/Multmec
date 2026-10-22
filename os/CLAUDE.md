@@ -18,6 +18,9 @@ Pasta `os/` do repositório Multmec. O financeiro em Node (`app/`) é outro sist
 - Perfis fixos (`App\Enums\Role`): gestor, atendimento, mecanico.
   - Gates `gestor`, `atendimento` e `oficina`; o gestor passa em todos.
   - "Responsável" é sempre um usuário escolhido da lista (`User::forPicker()`), nunca texto livre. Toda ação relevante grava o autor.
+- Etapa da OS só muda por `App\Services\Orders\StageMachine` (`move`, `back`, `cancel`), passando a etapa que a tela mostrava; o "Falta para avançar" de cada etapa fica em `StageGate::missing()` e cada entrega acrescenta as regras dela ali (a tela e o servidor usam a mesma lista). Nunca `update(['stage' => …])`.
+- Placa: `Vehicle::byPlate()` (antiga e Mercosul são o mesmo carro, `plate_key`); telefone/WhatsApp: `App\Support\Phone` (dígitos sem o 55; `whatsappLink()` monta o `wa.me`). Placa na tela: `<x-plate>`; etapa: `<x-stage-badge>`; cartão: `<x-order-card>`.
+- Mecânico não vê preço, custo nem lucro em tela nenhuma; o atendimento não vê lucro nem margem.
 - Ajustes: `App\Support\Settings::get()`, que lê o banco ou cai em `config/oficina.php`. Textos jurídicos são modelos `[REVISAR]`: nunca inventar linguagem jurídica, valor de torque ou prazo legal.
 - Fotos:
   - O celular reduz a foto para 1.600 px e calcula o SHA-256 (`window.sha256File`).

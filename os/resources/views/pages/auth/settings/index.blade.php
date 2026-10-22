@@ -146,8 +146,9 @@ new #[Title('Ajustes')] class extends Component
 <div class="space-y-5">
     <div class="flex flex-wrap items-center gap-3">
         <h1 class="font-display font-extrabold text-3xl uppercase tracking-wide flex items-center gap-2"><span class="w-1 h-6 rounded bg-brand-600"></span>Ajustes</h1>
-        <div class="flex gap-2 sm:ml-auto">
+        <div class="flex flex-wrap gap-2 sm:ml-auto">
             <a href="{{ route('settings.users') }}" class="{{ $btnSecondary }}"><i class="fas fa-users"></i> Usuários</a>
+            <a href="{{ route('settings.izi-fleet') }}" class="{{ $btnSecondary }}"><i class="fas fa-car-side"></i> Frota Izi</a>
             <a href="{{ route('settings.health') }}" class="{{ $btnSecondary }}"><i class="fas fa-heart-pulse"></i> Saúde do sistema</a>
         </div>
     </div>

@@ -40,7 +40,7 @@ class AppServiceProvider extends ServiceProvider
         // `$money($centavos)` em todas as telas, partials e PDFs ("R$ 1.234,56").
         View::share('money', fn ($cents) => Money::brl($cents));
         // Classes dos campos e botões, as mesmas em todas as telas (não redefinir no @php da tela).
-        View::share('inputClass', 'w-full px-3 py-2.5 text-base sm:text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-brand-500 focus:border-brand-500');
+        View::share('inputClass', 'w-full px-3 py-2.5 text-base sm:text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-100 disabled:text-gray-600 dark:disabled:bg-gray-800 dark:disabled:text-gray-400 disabled:cursor-not-allowed');
         View::share('labelClass', 'block mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400');
         View::share('btnPrimary', 'inline-flex items-center justify-center gap-2 min-h-11 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold disabled:opacity-50');
         View::share('btnSecondary', 'inline-flex items-center justify-center gap-2 min-h-11 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50');
