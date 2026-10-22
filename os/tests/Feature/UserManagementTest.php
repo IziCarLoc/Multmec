@@ -96,4 +96,22 @@ class UserManagementTest extends TestCase
 
         $this->assertTrue(User::query()->where('email', 'gabriel@exemplo.test')->first()->isGestor());
     }
+
+    public function test_contas_iniciais_usam_a_senha_do_env_e_podem_rodar_de_novo(): void
+    {
+        config(['auth.initial_password' => '']);
+        $this->artisan('usuarios:iniciais')->assertFailed();
+        $this->assertSame(0, User::query()->count());
+
+        config(['auth.initial_password' => 'senha-de-teste']);
+        $this->artisan('usuarios:iniciais')->assertSuccessful();
+        $this->artisan('usuarios:iniciais')->assertSuccessful();
+
+        $this->assertSame(5, User::query()->count());
+        $this->assertSame(2, User::query()->where('role', Role::Gestor->value)->count());
+        $this->assertSame(2, User::query()->where('role', Role::Mecanico->value)->count());
+        $mecanico = User::query()->where('email', 'mecanico1@multmec.local')->firstOrFail();
+        $this->assertTrue(Hash::check('senha-de-teste', $mecanico->password));
+        $this->assertFalse($mecanico->must_change_password);
+    }
 }

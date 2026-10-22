@@ -7,7 +7,7 @@ Ordens de serviço da oficina, do recebimento do carro até a entrega. O sistema
 Mecânicos usam no celular; o atendimento usa no celular da oficina e no computador.
 
 - **Tecnologia:** a mesma do Gestão de Frota da Izi Car.
-  - Laravel 12, PHP 8.3, Livewire 4 com Alpine e Tailwind já compilado.
+  - Laravel 12, PHP 8.4 (a do servidor), Livewire 4 com Alpine e Tailwind já compilado.
   - PDF com dompdf; MySQL na Hostinger.
 - **Onde fica:** pasta `os/` do repositório Multmec. O controle financeiro em Node (`app/`) é outro sistema.
 - **Convenções para quem mexe no código:** [`CLAUDE.md`](CLAUDE.md).
@@ -17,8 +17,9 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | Entrega | O que tem | Situação |
 |---|---|---|
 | 0 | Acesso com e-mail e senha ("manter conectado"), perfis Gestor / Atendimento / Mecânico, usuários com senha provisória, Ajustes (oficina, numeração, regras, textos dos termos), Saúde do sistema com teste da hospedagem, app instalável no celular | Pronto |
-| 1 | Clientes, veículos, OS com etapas, travas e histórico | Próxima |
-| 2 a 6 | Vistoria com fotos, diagnóstico, cotação, orçamento e aceite, execução, conferência, entrega e PDFs | Até 4/11 |
+| 1 | Clientes e veículos (busca por placa, frota Izi vinda do Gestão), fornecedores e prestadores, OS com etapas, travas, histórico e volta pelo gestor, quadro, lista e avisos por perfil, publicação automática | Pronto |
+| 2 a 6 | Vistoria com fotos, diagnóstico, cotação, orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
+| 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
 
 ## Rodar no computador
 
@@ -31,7 +32,7 @@ cp .env.example .env
 php artisan key:generate
 touch database/database.sqlite
 php artisan migrate --seed
-php artisan db:seed --class=DemoSeeder   # 5 usuários de exemplo, senha multmec123
+php artisan db:seed --class=DemoSeeder   # 5 usuários, 3 fornecedores e 2 OS de exemplo, senha multmec123
 php artisan serve                        # http://127.0.0.1:8000
 ```
 
@@ -46,122 +47,102 @@ vendor/bin/pint         # arruma o estilo do código (o CI confere)
 npm install && npm run build:css   # depois de mexer em classes do Tailwind nas telas; commitar public/css/app.css
 ```
 
-## Publicar na Hostinger (primeira vez)
+## Publicar
 
-O sistema roda na mesma conta da Hostinger do Gestão, num subdomínio próprio. Calcule uns 15 minutos.
+O sistema fica no mesmo plano da Hostinger que o de infrações (plano Business, hospedagem compartilhada), no endereço **https://multmec.izicarlocadora.com**.
 
-### 1. No hPanel
+| O quê | Onde no servidor |
+|---|---|
+| Sistema (fora da pasta pública) | `~/domains/izicarlocadora.com/multmec-app/` |
+| Pasta pública do subdomínio | `~/domains/izicarlocadora.com/public_html/multmec/` (cópia de `public/` + `deploy/index.php`, que aponta para o sistema) |
+| Fotos, vídeos, assinaturas, PDFs | `multmec-app/storage/app/private/` |
+| Configuração (senhas) | `multmec-app/.env` (nunca vai para o Git) |
+| Cópias de segurança | `~/domains/izicarlocadora.com/multmec-backups/` |
 
-1. **Domínios > Subdomínios:** criar o subdomínio, por exemplo `os.seudominio.com.br`.
-   Se a Multmec tiver domínio próprio, use-o: o endereço aparece para o cliente nos links do WhatsApp.
-2. **Bancos de dados > MySQL:** criar um banco e um usuário. Anote nome do banco, usuário e senha.
-3. **Avançado > PHP Configuration**, para o subdomínio:
-   - versão **8.3**;
-   - em "Opções do PHP": `upload_max_filesize` **25M**, `post_max_size` **30M**, `memory_limit` **512M**, `max_execution_time` **120**;
-   - extensões ligadas: `gd`, `exif`, `fileinfo`, `intl`, `mbstring`, `pdo_mysql`, `zip`.
-4. **Segurança > SSL:** ativar o certificado do subdomínio.
-5. **Desempenho > CDN:** se estiver ligado no domínio, desligar para o subdomínio (as telas do sistema não podem vir de cache).
-6. **Avançado > Acesso SSH:** confirmar que está ativo (o Gestão já usa).
+A pasta pública é uma **cópia**, não um link: o LiteSpeed da Hostinger nem sempre segue links simbólicos.
 
-### 2. No terminal (SSH)
+**Como publica:** cada mudança aprovada entra na branch `main`. Com os testes verdes, o GitHub Actions (job **Publicar**, em `.github/workflows/os.yml`):
+1. envia os arquivos por SSH, sem tocar no `.env` nem em `storage/`;
+2. roda `deploy/publicar.sh` no servidor, que faz:
+   - manutenção;
+   - `migrate`;
+   - JS do Livewire;
+   - cópia da pasta pública;
+   - `optimize`;
+   - volta ao ar;
+   - `sistema:conferir-deploy`, que tem que terminar em "Deploy conferido.".
 
-O código fica **fora** do `public_html`. Só a pasta `os/public` fica visível na internet; se ficasse tudo lá, o arquivo `.env` (com as senhas) e o financeiro ficariam expostos.
-
-```bash
-cd ~
-git clone <endereço do repositório Multmec> multmec   # do mesmo jeito que o Gestão foi clonado
-cd ~/multmec && git checkout <branch publicada>
-cd ~/multmec/os
-
-composer install --no-dev --optimize-autoloader
-cp .env.example .env
-nano .env
-```
-
-No `.env`, troque:
-- `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://os.seudominio.com.br`;
-- `DB_CONNECTION=mysql`, com `DB_HOST`, `DB_DATABASE`, `DB_USERNAME` e `DB_PASSWORD` do banco criado (o host costuma ser `localhost`);
-- `SESSION_SECURE_COOKIE=true`.
+**Publicar à mão** (do computador com a chave de deploy), depois de enviar os arquivos:
 
 ```bash
-php artisan key:generate
-php artisan migrate --force --seed          # cria as tabelas e as unidades Liberdade e Matriz
-php artisan usuarios:criar seu@email.com --nome="Gabriel Cezimbra" --curto="Gabriel C." --perfil=gestor
-#   → mostra a senha provisória do primeiro gestor; os outros usuários ele cria em Ajustes > Usuários
-php artisan optimize
-php artisan livewire:publish --assets
-chmod -R 775 storage bootstrap/cache
+ssh -i ~/.ssh/infrasafecar_deploy -p 65002 u196070522@82.25.67.134 'bash domains/izicarlocadora.com/multmec-app/deploy/publicar.sh'
 ```
 
-**Ligar o subdomínio à pasta pública.** O hPanel cria uma pasta vazia para o subdomínio. Descubra qual é com `ls ~/domains/` e `ls ~/public_html` e veja onde fica a do Gestão para seguir o mesmo esquema. Depois troque essa pasta por um atalho:
+### Primeira vez (uma só)
 
-```bash
-ls -la <pasta-do-subdominio>     # confira que está vazia (ou só com o default.php da Hostinger)
-rm -r <pasta-do-subdominio>
-ln -s ~/multmec/os/public <pasta-do-subdominio>
-```
+1. **hPanel → Bancos de dados → Gerenciamento.**
+   - Crie o banco e o usuário. A Hostinger põe o prefixo da conta, por exemplo `u196070522_multmec`.
+   - Guarde a senha só com você.
+2. **GitHub → Multmec → Settings → Secrets and variables → Actions:** segredo `HOSTINGER_SSH_KEY` com a chave **privada** de deploy, a mesma do sistema de infrações (arquivo `infrasafecar_deploy`, sem `.pub`).
+3. **hPanel → Sites → multmec.izicarlocadora.com → Implantações:** se houver repositório conectado, desconecte. Aquela implantação copia o repositório inteiro para a pasta pública.
+4. **hPanel → Avançado → Configuração do PHP:**
+   - PHP 8.4;
+   - `upload_max_filesize` e `post_max_size` = 25M;
+   - `memory_limit` = 512M;
+   - `max_execution_time` = 120.
+5. **Primeira publicação.**
+   - Ela cria o `multmec-app/.env` com uma chave nova e deixa o site em manutenção, porque ainda falta o banco.
+   - No **Gerenciador de arquivos** do hPanel, abra `domains/izicarlocadora.com/multmec-app/.env` e preencha `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` e `SENHA_INICIAL`.
+   - Publique de novo: no GitHub, Actions → Sistema de OS → Run workflow, na `main`.
+6. **Contas iniciais**, por SSH (ou pelo Terminal do hPanel), uma vez:
 
-Se a Hostinger não aceitar o atalho, edite o subdomínio no hPanel e aponte a pasta raiz dele para `multmec/os/public`.
+   ```bash
+   cd ~/domains/izicarlocadora.com/multmec-app && php artisan usuarios:iniciais
+   ```
 
-### 3. Agendador e conferência
+   Cria `gestor1@multmec.local`, `gestor2@`, `atendimento@`, `mecanico1@` e `mecanico2@`, todas com a `SENHA_INICIAL`. Cada pessoa usa sempre a mesma conta. Nome e e-mail se trocam depois em Ajustes > Usuários, e cada um troca a senha em "Trocar minha senha".
+7. **hPanel → Avançado → Cron Jobs**, duas linhas (troque `u196070522` se o usuário for outro):
 
-**hPanel > Avançado > Cron Jobs**, a cada minuto (`* * * * *`):
+   ```
+   * * * * *   php /home/u196070522/domains/izicarlocadora.com/multmec-app/artisan schedule:run
+   0 3 * * *   bash /home/u196070522/domains/izicarlocadora.com/multmec-app/deploy/backup.sh
+   ```
 
-```
-/usr/bin/php /home/SEU_USUARIO/multmec/os/artisan schedule:run
-```
+8. **Conferir.**
+   - Entre como gestor e abra Ajustes > Saúde do sistema: tudo verde, inclusive o envio de 20 MB e o PDF de teste.
+   - Depois abra uma OS de teste no celular.
 
-Use o caminho completo: no terminal, `pwd` dentro de `~/multmec/os` mostra o caminho.
+### Voltar atrás
 
-```bash
-php artisan sistema:conferir-deploy   # tem que terminar em "Deploy conferido."
-```
-
-Por último, abra o sistema no celular e entre com o gestor. Em **Ajustes > Saúde do sistema**:
-- tudo tem que estar verde (o agendador aparece verde depois do primeiro minuto do cron);
-- faça os três testes: envio de um vídeo do celular, foto carimbada e PDF com 30 fotos.
-
-## Atualizar (cada nova entrega)
-
-```bash
-cd ~/multmec && git pull
-cd os
-composer install --no-dev --optimize-autoloader
-php artisan migrate --force          # depois: php artisan migrate:status sem "Pending"
-php artisan optimize
-php artisan livewire:publish --assets
-php artisan sistema:conferir-deploy  # "Deploy conferido."
-```
-
-Antes de uma atualização grande, faça a cópia do banco (abaixo).
+Reverta o commit na `main` (`git revert`) e envie: a publicação roda de novo. O banco não volta sozinho. Se uma migração precisar ser desfeita, use a cópia em `multmec-backups/`.
 
 ## Backup
 
-**Banco de dados (todo dia, automático).**
+`deploy/backup.sh` roda todo dia às 3h (cron do passo 7) e guarda em `~/domains/izicarlocadora.com/multmec-backups/`:
 
-1. Crie `~/.my.cnf`, com as credenciais do banco, e rode `chmod 600 ~/.my.cnf`:
+- **Banco:** `banco-AAAA-MM-DD.sql.gz`, um por dia, 14 dias. A senha é lida do `.env` e não aparece na lista de processos.
+- **Fotos, vídeos, assinaturas e PDFs:**
+  - `arquivos-AAAA-MM-DD-completa.tar.gz` aos domingos;
+  - `arquivos-AAAA-MM-DD-dia.tar.gz` (só o que mudou) nos outros dias;
+  - 3 semanas.
 
-   ```
-   [mysqldump]
-   user=USUARIO_DO_BANCO
-   password=SENHA_DO_BANCO
-   ```
+**Restaurar:**
+- **Banco:** `gunzip -c banco-AAAA-MM-DD.sql.gz | mysql -u USUARIO -p NOME_DO_BANCO`.
+- **Arquivos:** extraia a última completa e depois cada arquivo de dia, em ordem, dentro de `multmec-app/storage/app`:
 
-2. No hPanel, crie o cron das 3h (`0 3 * * *`). O comando abaixo guarda 30 dias de cópias em `~/backups`:
+  ```bash
+  tar --listed-incremental=/dev/null -xzf arquivos-AAAA-MM-DD-completa.tar.gz -C ~/domains/izicarlocadora.com/multmec-app/storage/app
+  ```
 
-   ```
-   mkdir -p ~/backups && mysqldump NOME_DO_BANCO | gzip > ~/backups/os-$(date +\%F).sql.gz && find ~/backups -name 'os-*.sql.gz' -mtime +30 -delete
-   ```
+**Cópia fora do servidor.** O backup da Hostinger cobre o plano, mas tenha uma cópia sua, uma vez por semana:
+- hPanel → Gerenciador de arquivos → `multmec-backups`: baixe o último `banco-*.sql.gz` e o último `arquivos-*-completa.tar.gz`;
+- ou, do computador com a chave:
 
-3. Para restaurar: `gunzip -c ~/backups/os-AAAA-MM-DD.sql.gz | mysql NOME_DO_BANCO`.
+  ```bash
+  scp -P 65002 -i ~/.ssh/infrasafecar_deploy -r u196070522@82.25.67.134:domains/izicarlocadora.com/multmec-backups ./multmec-backups
+  ```
 
-**Fotos, vídeos, assinaturas e PDFs** ficam em `os/storage/app/private/`. O backup da Hostinger cobre essa pasta, mas é bom ter uma cópia fora:
-
-```bash
-tar czf ~/backups/arquivos-$(date +%F).tar.gz -C ~/multmec/os/storage/app private
-```
-
-Baixe esse arquivo de vez em quando pelo Gerenciador de Arquivos do hPanel. Em Ajustes > Saúde do sistema > Armazenamento aparece quanto espaço e quantos arquivos o sistema já ocupa.
+Em Ajustes > Saúde do sistema > Armazenamento aparece quanto espaço o sistema já ocupa.
 
 ## Dados reais fora do Git
 

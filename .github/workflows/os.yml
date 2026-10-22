@@ -2,11 +2,13 @@ name: Sistema de OS
 
 # Testes do sistema de OS (pasta os/): estilo (pint), testes com SQLite e com MariaDB (a Hostinger
 # usa MySQL/MariaDB; o SQLite dos testes aceita coisas que o MySQL recusa) e o CSS compilado em dia.
+# Na main, com tudo verde, publica em multmec.izicarlocadora.com (job Publicar; README, "Publicar").
 on:
   pull_request:
     paths: ['os/**', '.github/workflows/os.yml']
   push:
     paths: ['os/**', '.github/workflows/os.yml']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,9 +25,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # O repositório é público: nenhum .env, banco ou backup pode entrar no Git.
+      - name: Nada de segredo no Git
+        working-directory: .
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|\.sqlite$|\.sql\.gz$|\.tar\.gz$|(^|/)id_(rsa|ed25519)$'; then
+            echo "Arquivo que não pode ir para o Git (acima). Tire do commit e ponha no .gitignore."
+            exit 1
+          fi
+
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: mbstring, pdo_sqlite, sqlite3, gd, exif, fileinfo, zip, intl, bcmath
           coverage: none
 
@@ -45,6 +56,9 @@ jobs:
 
       - name: Estilo (pint)
         run: vendor/bin/pint --test
+
+      - name: Scripts de publicação (sintaxe)
+        run: bash -n deploy/publicar.sh && bash -n deploy/backup.sh && php -l deploy/index.php
 
       - name: Testes
         run: php artisan test
@@ -88,7 +102,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: mbstring, pdo_mysql, gd, exif, fileinfo, zip, intl, bcmath
           coverage: none
 
@@ -108,3 +122,68 @@ jobs:
 
       - name: Testes
         run: php artisan test
+
+  publicar:
+    name: Publicar em multmec.izicarlocadora.com
+    needs: [sqlite, mariadb]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: publicar-multmec
+      cancel-in-progress: false
+    env:
+      SERVIDOR: u196070522@82.25.67.134
+      PORTA: '65002'
+      PASTA_APP: domains/izicarlocadora.com/multmec-app
+      # Sem o segredo HOSTINGER_SSH_KEY o job só avisa e termina verde (README, "Publicar", passo 2).
+      TEM_CHAVE: ${{ secrets.HOSTINGER_SSH_KEY != '' }}
+    steps:
+      - name: Sem chave do servidor
+        if: env.TEM_CHAVE != 'true'
+        run: echo "::notice::Segredo HOSTINGER_SSH_KEY ausente. Publicação pulada; veja os/README.md."
+
+      - uses: actions/checkout@v4
+        if: env.TEM_CHAVE == 'true'
+
+      - uses: shivammathur/setup-php@v2
+        if: env.TEM_CHAVE == 'true'
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_mysql, gd, exif, fileinfo, zip, intl, bcmath
+          coverage: none
+
+      - name: Cache do Composer
+        if: env.TEM_CHAVE == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('os/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Dependências de produção
+        if: env.TEM_CHAVE == 'true'
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Chave SSH
+        if: env.TEM_CHAVE == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          ssh-keyscan -p "$PORTA" 82.25.67.134 >> ~/.ssh/known_hosts 2>/dev/null
+
+      # storage/ (fotos, vídeos, assinaturas, logs) e o .env do servidor nunca são tocados.
+      - name: Enviar os arquivos
+        if: env.TEM_CHAVE == 'true'
+        run: |
+          rsync -az --delete \
+            --exclude '.git' --exclude 'tests' --exclude 'node_modules' \
+            --exclude '.env' --exclude 'database/*.sqlite' --exclude 'database/*.sqlite-journal' \
+            --exclude 'storage/' --exclude 'bootstrap/cache/' --exclude 'public/vendor/' \
+            -e "ssh -i ~/.ssh/deploy -p $PORTA" \
+            ./ "$SERVIDOR:$PASTA_APP/"
+
+      - name: Migrar e publicar
+        if: env.TEM_CHAVE == 'true'
+        run: ssh -i ~/.ssh/deploy -p "$PORTA" "$SERVIDOR" "bash $PASTA_APP/deploy/publicar.sh"

@@ -114,4 +114,7 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    // Senha das contas genéricas de `php artisan usuarios:iniciais`. Fica só no .env (o repositório é público).
+    'initial_password' => env('SENHA_INICIAL'),
+
 ];
