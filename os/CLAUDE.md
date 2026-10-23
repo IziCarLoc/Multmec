@@ -32,6 +32,12 @@ Pasta `os/` do repositório Multmec. O financeiro em Node (`app/`) é outro sist
 - Peças e serviços da OS: `App\Services\Items\OrderItems` (o mecânico lança descrição, quantidade, horas e prioridade; origem, fornecedor/prestador e custo são do atendimento e o serviço recusa campo comercial vindo do mecânico). Item só muda no diagnóstico (e na cotação pelo atendimento); depois do orçamento, item novo é adendo.
 - Cotação: `App\Services\Quotes\Quotations` (código COT-AAAA-NNNN, mensagem, `wa.me` por fornecedor, respostas, vencedor que preenche o item). **A mensagem ao fornecedor nunca leva nome, CPF, telefone ou e-mail do cliente**: só o carro e as peças (o teste trava). Peça "do cliente" ou "do estoque" não vai para a cotação (`PartOrigin::skipsQuote()`).
 - Vídeo entra só por `MediaStore::storeVideo()` (até 20 MB, hash conferido, guardado como chegou; a tela põe OS, placa e hora do servidor por cima).
+- Financeiro (`App\Services\Finance`, telas em `pages/auth/finance`, rotas `/financeiro`): só gestor e atendimento (trait `FinanceAccess`).
+  - **O atendimento nunca vê lucro nem margem** (Painel, formulário, lista, "Por mês"): a tela pergunta `canSeeProfit()` antes de calcular ou mostrar.
+  - Lucro só em `Profit`: bruto = total − peças − frete − prestador (`providerCost()`, hoje 0); da peça = (total − mão de obra) − peças − frete. "Cliente trouxe a peça" zera as peças.
+  - Parcela é uma linha própria (`Installments::split`, centavos exatos, o resto nas primeiras); editar uma nunca apaga nem recria as outras.
+  - A situação do "A receber" sai dos pagamentos (`Receivables` refaz `paid_cents`/`received_on`); parcial vencido é vencido. Baixa como prejuízo (`Receivables::writeOff`) é uma transação só e o lançamento baixado nunca reabre.
+  - Recebimento pela matriz não entra em saldo, lucro, "a receber" nem inadimplência (`Receivable::counted()`). Painel conta pago, recebido e prejuízo na data em que aconteceram (`FinanceSummary`); janelas de vencimento em `DueWindow`.
 - Classes de campo e botão compartilhadas: `$inputClass`, `$labelClass`, `$btnPrimary`, `$btnSecondary`, `$cardClass`. Não redefinir na tela.
 - Janela: `<x-modal>`. CPF/CNPJ: `<x-document-input>`. Aviso: evento `toast`.
 - Textos da interface em português do Brasil, com a linguagem da oficina (OS, orçamento, conferência, aceite). Cores: azul `brand` como destaque, grafite `plate` no cabeçalho, vermelho `stripe` só na faixa e nos alertas.

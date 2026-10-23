@@ -35,6 +35,14 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
     Route::middleware('can:atendimento')->group(function () {
         Route::livewire('/clientes-e-veiculos', 'pages::auth.registry.index')->name('registry');
         Route::livewire('/fornecedores', 'pages::auth.suppliers.index')->name('suppliers');
+
+        // Financeiro: gestor e atendimento (o atendimento não vê lucro nem margem).
+        Route::livewire('/financeiro', 'pages::auth.finance.dashboard')->name('finance');
+        Route::livewire('/financeiro/receber', 'pages::auth.finance.receivables')->name('finance.receivables');
+        Route::livewire('/financeiro/pagar', 'pages::auth.finance.payables')->name('finance.payables');
+        Route::livewire('/financeiro/inadimplentes', 'pages::auth.finance.delinquents')->name('finance.delinquents');
+        Route::livewire('/financeiro/prejuizos', 'pages::auth.finance.losses')->name('finance.losses');
+        Route::livewire('/financeiro/prestadores', 'pages::auth.finance.providers')->name('finance.providers');
     });
 
     Route::middleware('can:gestor')->group(function () {

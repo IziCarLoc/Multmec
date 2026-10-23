@@ -9,6 +9,7 @@
         ['route' => 'inbox', 'label' => 'Avisos', 'icon' => 'fa-bell', 'active' => ['inbox'], 'count' => $inboxCount],
         $user->can('atendimento') ? ['route' => 'registry', 'label' => 'Clientes e veículos', 'icon' => 'fa-car', 'active' => ['registry']] : null,
         $user->can('atendimento') ? ['route' => 'suppliers', 'label' => 'Fornecedores', 'icon' => 'fa-truck-field', 'active' => ['suppliers']] : null,
+        $user->can('atendimento') ? ['route' => 'finance', 'label' => 'Financeiro', 'icon' => 'fa-sack-dollar', 'active' => ['finance', 'finance.*']] : null,
         $user->isGestor() ? ['route' => 'settings', 'label' => 'Ajustes', 'icon' => 'fa-gear', 'active' => ['settings*']] : null,
     ]));
 @endphp

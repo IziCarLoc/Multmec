@@ -20,6 +20,7 @@ class Customer extends Model
         'phone2',
         'document',
         'email',
+        'address',
         'is_izi_fleet',
         'notes',
     ];
@@ -39,6 +40,11 @@ class Customer extends Model
     public function serviceOrders(): HasMany
     {
         return $this->hasMany(ServiceOrder::class);
+    }
+
+    public function receivables(): HasMany
+    {
+        return $this->hasMany(Receivable::class);
     }
 
     public function whatsappFormatted(): string

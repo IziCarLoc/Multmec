@@ -20,6 +20,7 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | 1 | Clientes e veículos (busca por placa, frota Izi vinda do Gestão), fornecedores e prestadores, OS com etapas, travas, histórico e volta pelo gestor, quadro, lista e avisos por perfil, publicação automática | Pronto |
 | 2 | Fotos pela câmera com hash conferido, original intacto, carimbo e miniatura; vistoria parte A (fotos guiadas, painel, acessórios, avarias marcadas na foto, autorizações, quem aprova) e parte B (14 itens); PDF da vistoria; envio pelo WhatsApp em dois toques ou assinatura na tela | Pronto |
 | 3 | Diagnóstico com peças e serviços (horas, necessário/recomendado, origem da peça, prestador externo com custo), serviços frequentes, vídeo de até 20 MB; cotação COT-AAAA-NNNN pelo WhatsApp (sem dados do cliente), respostas por peça e vencedor | Pronto |
+| Financeiro 2a | Painel (vencimentos que abrem a lista filtrada, em aberto, movimento do mês e "Por mês" pela data do pagamento), A receber (parcelas em centavos exatos, pagamentos parciais com data, recebimento pela matriz, baixa do vencido como prejuízo), A pagar (boletos com parcelas e "marcar pago"), prestadores externos, inadimplentes e prejuízos; o atendimento não vê lucro | Pronto (faltam o lançamento automático pela OS aprovada e a importação do artefato) |
 | 4 a 6 | Orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
 | 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
 
@@ -35,6 +36,7 @@ php artisan key:generate
 touch database/database.sqlite
 php artisan migrate --seed
 php artisan db:seed --class=DemoSeeder   # 5 usuários, 3 fornecedores e 2 OS de exemplo (uma pronta para cotar), senha multmec123
+php artisan db:seed --class=FinanceDemoSeeder   # lançamentos de exemplo do Financeiro (depois do DemoSeeder)
 php artisan serve                        # http://127.0.0.1:8000
 ```
 
