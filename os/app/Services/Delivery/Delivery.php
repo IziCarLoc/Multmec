@@ -13,6 +13,7 @@ use App\Models\OrderItem;
 use App\Models\ServiceOrder;
 use App\Models\User;
 use App\Services\Budgets\Budgets;
+use App\Services\Finance\Credit;
 use App\Services\Finance\ProviderPayments;
 use App\Services\Finance\Receivables;
 use App\Services\Inspections\EntryInspection;
@@ -176,8 +177,10 @@ final class Delivery
 
     /**
      * Registra a entrega: assinatura do termo, a etapa "Entregue" e o que vai para o Financeiro.
+     * Pagamento a prazo (parcelado ou vencendo depois de hoje) passa pela trava do crédito antes de tudo: cliente
+     * travado, sem crédito ou que passaria do limite só com a liberação do gestor (`credit_release` = motivo).
      *
-     * @param  array{who: string, signer_name: ?string, signer_document: ?string, authorization?: ?string, signature: ?string, payment_method?: ?string, due_dates?: list<string>, received_now?: bool}  $data
+     * @param  array{who: string, signer_name: ?string, signer_document: ?string, authorization?: ?string, signature: ?string, payment_method?: ?string, due_dates?: list<string>, received_now?: bool, credit_release?: ?string}  $data
      */
     public function deliver(ServiceOrder $order, array $data, User $by, ?string $ip, ?string $userAgent): ServiceOrder
     {
@@ -219,6 +222,15 @@ final class Delivery
         if ($amounts['total'] > 0 && $dueDates === []) {
             throw new DomainException('Informe o vencimento do pagamento (ou a data de hoje, se pagou agora).');
         }
+
+        // A trava do crédito antes da assinatura: nada é gravado se o cliente não pode levar a prazo.
+        app(Credit::class)->authorize(
+            $order->customer,
+            $amounts['total'],
+            $amounts['total'] > 0 && Credit::isOnCredit($dueDates, ! empty($data['received_now'])),
+            $by,
+            isset($data['credit_release']) ? (string) $data['credit_release'] : null,
+        );
 
         return DB::transaction(function () use ($order, $who, $name, $digits, $authorization, $png, $amounts, $dueDates, $data, $by, $ip, $userAgent) {
             $legal = Settings::text('pickup')."\n\n".$this->budgets->warrantyText();
@@ -337,6 +349,7 @@ final class Delivery
                 'payment_method' => $data['payment_method'] ?? null,
                 'received_on' => ! empty($data['received_now']) && count($dueDates) === 1 ? now()->toDateString() : null,
                 'notes' => 'Lançado na entrega da '.$order->label().'.',
+                'credit_release' => $data['credit_release'] ?? null,
             ], $dueDates, $by);
         }
 

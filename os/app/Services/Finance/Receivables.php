@@ -25,6 +25,8 @@ use Illuminate\Support\Str;
  * "A receber": lançar (com ou sem parcelas), editar uma parcela, registrar e remover pagamentos e dar baixa
  * como prejuízo. A situação de cada lançamento sai dos pagamentos (`paid_cents`/`received_on` são o resumo
  * deles, refeito aqui a cada mudança).
+ * Lançar a prazo (parcelado ou vencendo depois de hoje) passa pela trava do crédito (Credit::authorize): cliente
+ * travado, sem crédito ou que passaria do limite só com a liberação do gestor (`credit_release` = motivo).
  */
 final class Receivables
 {
@@ -54,8 +56,15 @@ final class Receivables
 
         $dueDates = array_map(fn ($d) => FinanceInput::date($d, 'Data de vencimento inválida.'), $dueDates);
         $receivedOn = $count === 1 && filled($data['received_on'] ?? null) ? FinanceInput::date((string) $data['received_on'], 'Data do recebimento inválida.') : null;
+        $release = app(Credit::class)->authorize(
+            Customer::find($attributes['customer_id']),
+            $attributes['total_cents'],
+            ! $attributes['received_by_matrix'] && Credit::isOnCredit($dueDates, $receivedOn !== null),
+            $by,
+            isset($data['credit_release']) ? (string) $data['credit_release'] : null,
+        );
 
-        return DB::transaction(function () use ($attributes, $dueDates, $count, $receivedOn, $by) {
+        return DB::transaction(function () use ($attributes, $dueDates, $count, $receivedOn, $by, $release) {
             $group = $count > 1 ? (string) Str::uuid() : null;
             $split = fn (string $field) => Installments::split($attributes[$field], $count);
             [$totals, $parts, $labor, $freight] = [$split('total_cents'), $split('parts_cost_cents'), $split('labor_cents'), $split('freight_cents')];
@@ -83,6 +92,10 @@ final class Receivables
                 $this->storePayment($created->first(), $receivedOn, $created->first()->total_cents, $by);
             }
 
+            if ($release !== null) {
+                AuditLog::record($created->first()->customer, 'credit.released', $release, ['lancamentos' => $created->pluck('id')->all(), 'total_cents' => $attributes['total_cents']]);
+            }
+
             return $created->map->fresh();
         });
     }
@@ -95,7 +108,7 @@ final class Receivables
      */
     public function update(Receivable $receivable, array $data, User $by): Receivable
     {
-        return DB::transaction(function () use ($receivable, $data) {
+        return DB::transaction(function () use ($receivable, $data, $by) {
             $receivable = $this->lock($receivable);
 
             if ($receivable->isWrittenOff()) {
@@ -109,11 +122,28 @@ final class Receivables
                 throw new DomainException('O valor total não pode ficar abaixo do que já foi recebido ('.Money::brl($receivable->paid_cents).').');
             }
 
+            // Adiar o vencimento para depois de hoje ou aumentar o valor a prazo também é vender a prazo.
+            $today = CarbonImmutable::today()->toDateString();
+            $otherCustomer = (int) $attributes['customer_id'] !== (int) $receivable->customer_id;
+            $onCredit = ! $attributes['received_by_matrix'] && $attributes['due_date'] > $today && $attributes['total_cents'] > $receivable->paid_cents
+                && ($attributes['due_date'] > $receivable->due_date->toDateString() || $attributes['total_cents'] > $receivable->total_cents || $otherCustomer);
+            $release = app(Credit::class)->authorize(
+                Customer::find($attributes['customer_id']),
+                $otherCustomer ? $attributes['total_cents'] - $receivable->paid_cents : max(0, $attributes['total_cents'] - $receivable->total_cents),
+                $onCredit,
+                $by,
+                isset($data['credit_release']) ? (string) $data['credit_release'] : null,
+            );
+
             $receivable->fill($attributes);
             $changes = $receivable->getDirty();
             $receivable->save();
             $this->refreshSummary($receivable);
             AuditLog::record($receivable, 'receivable.updated', null, array_keys($changes));
+
+            if ($release !== null) {
+                AuditLog::record($receivable->customer, 'credit.released', $release, ['lancamentos' => [$receivable->id], 'total_cents' => $receivable->total_cents]);
+            }
 
             return $receivable->fresh();
         });
