@@ -509,6 +509,7 @@ new #[Title('A receber')] class extends Component
 @php
     $showProfit = auth()->user()->can('gestor');
     $profit = app(\App\Services\Finance\Profit::class);
+    $providerCosts = $showProfit ? $profit->providerCosts($this->receivables) : [];
     $pill = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap';
 @endphp
 <div class="space-y-4">
@@ -599,7 +600,7 @@ new #[Title('A receber')] class extends Component
                                     $receivable->customer_brought_part ? 'peça do cliente' : null,
                                     $receivable->received_by_matrix ? 'não entra no Painel' : null,
                                     $st === ReceivableStatus::Parcial ? 'total '.$money($receivable->total_cents) : null,
-                                    $showProfit && ! $receivable->opening_balance ? 'lucro '.$money($profit->grossFor($receivable)) : null,
+                                    $showProfit && ! $receivable->opening_balance ? 'lucro '.$money($profit->grossFor($receivable, $providerCosts[$receivable->id] ?? 0)) : null,
                                     $receivable->notes,
                                 ])->filter()->implode(' · ') }}
                             </p>

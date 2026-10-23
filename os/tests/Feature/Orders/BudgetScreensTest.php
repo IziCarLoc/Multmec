@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Budgets\Budgets;
 use App\Services\Orders\StageMachine;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Concerns\BuildsOrders;
 use Tests\TestCase;
@@ -54,6 +55,15 @@ class BudgetScreensTest extends TestCase
 
         $this->actingAs(User::factory()->gestor()->create());
         Livewire::test('pages::auth.orders.budget', ['order' => $order])->assertSee('margem 40%');
+    }
+
+    public function test_pdf_enviado_nao_e_trocado_pelo_navegador(): void
+    {
+        $order = $this->quotingOrder();
+        $this->actingAs(User::factory()->atendimento()->create());
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test('pages::auth.orders.budget', ['order' => $order])->set('preparedPath', $order->storageDir().'/qualquer.pdf');
     }
 
     public function test_montar_o_orcamento_pela_tela(): void

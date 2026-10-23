@@ -97,6 +97,8 @@ final class FinanceSummary
             ->with('payments:id,receivable_id,paid_on,amount_cents')
             ->get(['id', 'total_cents', 'parts_cost_cents', 'labor_cents', 'freight_cents', 'customer_brought_part', 'received_by_matrix', 'opening_balance', 'service_order_id']);
 
+        $providers = $this->profit->providerCosts($receivables);
+
         foreach ($receivables as $receivable) {
             foreach ($receivable->payments as $payment) {
                 if ($receivable->received_by_matrix) {
@@ -106,7 +108,7 @@ final class FinanceSummary
                 }
 
                 $add($payment->paid_on, 'received', $payment->amount_cents);
-                $add($payment->paid_on, 'profit', $this->profit->realizedBy($receivable, $payment->amount_cents));
+                $add($payment->paid_on, 'profit', $this->profit->realizedBy($receivable, $payment->amount_cents, $providers[$receivable->id] ?? 0));
             }
         }
 

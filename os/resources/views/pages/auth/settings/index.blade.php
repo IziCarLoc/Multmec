@@ -144,18 +144,39 @@ new #[Title('Ajustes')] class extends Component
 ?>
 
 <div class="space-y-5">
-    <div class="flex flex-wrap items-center gap-3">
-        <h1 class="font-display font-extrabold text-3xl uppercase tracking-wide flex items-center gap-2"><span class="w-1 h-6 rounded bg-brand-600"></span>Ajustes</h1>
-        <div class="flex flex-wrap gap-2 sm:ml-auto">
-            <a href="{{ route('settings.users') }}" class="{{ $btnSecondary }}"><i class="fas fa-users"></i> Usuários</a>
-            <a href="{{ route('settings.izi-fleet') }}" class="{{ $btnSecondary }}"><i class="fas fa-car-side"></i> Frota Izi</a>
-            <a href="{{ route('settings.checklists') }}" class="{{ $btnSecondary }}" data-test="ajustes-checklists"><i class="fas fa-list-check"></i> Checklists</a>
-            <a href="{{ route('settings.purchases') }}" class="{{ $btnSecondary }}" data-test="ajustes-compras"><i class="fas fa-receipt"></i> Compras</a>
-            <a href="{{ route('settings.import') }}" class="{{ $btnSecondary }}" data-test="ajustes-importar"><i class="fas fa-file-import"></i> Importar dos artefatos</a>
-            <a href="{{ route('finance.spreadsheet-import') }}" class="{{ $btnSecondary }}" data-test="ajustes-importar-planilha"><i class="fas fa-file-csv"></i> Importar a planilha</a>
-            <a href="{{ route('finance.goal') }}#regras" class="{{ $btnSecondary }}" data-test="ajustes-regras-dinheiro"><i class="fas fa-bullseye"></i> Meta e regras do dinheiro</a>
-            <a href="{{ route('settings.health') }}" class="{{ $btnSecondary }}"><i class="fas fa-heart-pulse"></i> Saúde do sistema</a>
-        </div>
+    <h1 class="font-display font-extrabold text-3xl uppercase tracking-wide flex items-center gap-2"><span class="w-1 h-6 rounded bg-brand-600"></span>Ajustes</h1>
+
+    {{-- Atalhos agrupados pelo assunto; os dados da oficina, as regras e os textos ficam logo abaixo. --}}
+    <div class="grid gap-3 sm:grid-cols-2">
+        @foreach ([
+            'Pessoas e cadastros' => [
+                [route('settings.users'), 'fa-users', 'Usuários', null],
+                [route('settings.izi-fleet'), 'fa-car-side', 'Frota Izi', null],
+            ],
+            'Ordem de serviço' => [
+                [route('settings.checklists'), 'fa-list-check', 'Checklists', 'ajustes-checklists'],
+            ],
+            'Financeiro' => [
+                [route('finance.goal').'#regras', 'fa-bullseye', 'Meta e regras do dinheiro', 'ajustes-regras-dinheiro'],
+                [route('settings.purchases'), 'fa-receipt', 'Conferência de compras', 'ajustes-compras'],
+            ],
+            'Trazer dados de fora' => [
+                [route('settings.import'), 'fa-file-import', 'Importar dos artefatos', 'ajustes-importar'],
+                [route('finance.spreadsheet-import'), 'fa-file-csv', 'Importar a planilha', 'ajustes-importar-planilha'],
+            ],
+            'Sistema' => [
+                [route('settings.health'), 'fa-heart-pulse', 'Saúde do sistema', null],
+            ],
+        ] as $group => $links)
+            <div class="{{ $cardClass }} p-3 space-y-2">
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $group }}</p>
+                <div class="flex flex-wrap gap-2">
+                    @foreach ($links as [$href, $icon, $label, $test])
+                        <a href="{{ $href }}" class="{{ $btnSecondary }}" @if ($test) data-test="{{ $test }}" @endif><i class="fas {{ $icon }}"></i> {{ $label }}</a>
+                    @endforeach
+                </div>
+            </div>
+        @endforeach
     </div>
 
     {{-- Oficina e numeração --}}

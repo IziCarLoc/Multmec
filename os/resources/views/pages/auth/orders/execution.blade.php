@@ -296,12 +296,12 @@ new class extends Component
                 <div class="grid gap-3 grid-cols-2">
                     <div>
                         <label class="{{ $labelClass }}" for="torqueNm">Torque aplicado (Nm)</label>
-                        <input id="torqueNm" type="text" inputmode="numeric" wire:model.live.blur="torqueNm" placeholder="o valor que você usou" class="{{ $inputClass }}" data-test="torque-nm">
+                        <input id="torqueNm" type="text" inputmode="numeric" wire:model.live.blur="torqueNm" placeholder="o valor que você usou" @disabled(! auth()->user()->can('oficina')) class="{{ $inputClass }}" data-test="torque-nm">
                         @error('torqueNm') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="{{ $labelClass }}" for="torqueWrench">Nº do torquímetro</label>
-                        <input id="torqueWrench" type="text" wire:model.live.blur="torqueWrench" maxlength="30" class="{{ $inputClass }}" data-test="torquimetro">
+                        <input id="torqueWrench" type="text" wire:model.live.blur="torqueWrench" maxlength="30" @disabled(! auth()->user()->can('oficina')) class="{{ $inputClass }}" data-test="torquimetro">
                     </div>
                 </div>
                 <p class="text-xs text-gray-500">Use o torque da especificação do carro e marque os parafusos com a listra depois de apertar. A conferência fotografa cada roda.</p>

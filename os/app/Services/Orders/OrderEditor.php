@@ -67,14 +67,27 @@ final class OrderEditor
 
             $track($order->vehicle, collect($data)->only(['brand_model', 'color', 'year'])->map(fn ($v) => filled($v) ? trim((string) $v) : null)->all(), 'carro.');
 
+            $approver = [];
+
             if (! $customer->is_izi_fleet) {
+                [$oldName, $oldWhatsapp] = [$customer->name, $customer->whatsapp];
                 $track($customer, [
                     'name' => trim((string) ($data['customer_name'] ?? $customer->name)),
                     'whatsapp' => Phone::digits($data['customer_whatsapp'] ?? $customer->whatsapp),
                 ], 'cliente.');
+
+                // Quem aprova é o próprio cliente (o WhatsApp foi copiado na abertura): a correção vale para a vistoria
+                // e o orçamento também. Aprovador diferente (outra pessoa) fica como está.
+                if ($order->approver_kind === 'cliente' && ($order->approver_whatsapp === null || $order->approver_whatsapp === $oldWhatsapp)) {
+                    $approver['approver_whatsapp'] = $customer->whatsapp;
+                }
+
+                if ($order->approver_kind === 'cliente' && ($order->approver_name === null || $order->approver_name === $oldName)) {
+                    $approver['approver_name'] = $customer->name;
+                }
             }
 
-            $track($order, ['entry_date' => $entry, 'expected_date' => $expected], '');
+            $track($order, ['entry_date' => $entry, 'expected_date' => $expected] + $approver, '');
 
             if ($changes !== []) {
                 AuditLog::record($order, 'order.updated', null, $this->plain($changes));

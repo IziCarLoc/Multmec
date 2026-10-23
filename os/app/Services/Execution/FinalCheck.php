@@ -292,10 +292,31 @@ final class FinalCheck
         ]);
     }
 
-    /** Nova rodada (a OS voltou da correção): as respostas da anterior ficam guardadas. */
+    /**
+     * Nova rodada. Depois de um CORRIGIR a conferência recomeça inteira: as respostas da rodada anterior ficam
+     * guardadas, as fotos das rodas dela ficam como substituídas (`replaced_at`, nada se apaga) e o test drive dela vai
+     * para o histórico; rodas e test drive são feitos de novo, sobre o carro já corrigido.
+     */
     public function newRound(ServiceOrder $order): void
     {
-        $order->update(['final_check_round' => (int) $order->final_check_round + 1, 'final_check_template' => null, 'final_checker_id' => null]);
+        if ((int) $order->final_check_round >= 1) {
+            $order->media()->where('kind', MediaKind::Roda->value)->whereNull('replaced_at')->update(['replaced_at' => now()]);
+
+            if ($order->test_drive_ended_at !== null) {
+                AuditLog::record($order, 'final_check.test_drive_redo', 'Nova rodada de conferência depois do CORRIGIR', [
+                    'rodada' => (int) $order->final_check_round,
+                    'km_antes' => $order->test_drive_km_before,
+                    'km_depois' => $order->test_drive_km_after,
+                    'inicio' => $order->test_drive_started_at?->toDateTimeString(),
+                    'fim' => $order->test_drive_ended_at?->toDateTimeString(),
+                    'motorista' => $order->test_drive_driver_id,
+                    'trajeto' => $order->test_drive_route,
+                ]);
+                $order->forceFill(['test_drive_km_before' => null, 'test_drive_km_after' => null, 'test_drive_started_at' => null, 'test_drive_ended_at' => null, 'test_drive_driver_id' => null, 'test_drive_route' => null]);
+            }
+        }
+
+        $order->forceFill(['final_check_round' => (int) $order->final_check_round + 1, 'final_check_template' => null, 'final_checker_id' => null])->save();
     }
 
     private function assertChecker(ServiceOrder $order, User $by): void

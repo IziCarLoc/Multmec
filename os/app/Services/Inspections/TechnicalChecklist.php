@@ -120,15 +120,20 @@ final class TechnicalChecklist
 
     public function attachPhoto(OrderChecklistItem $item, Media $media, User $by): OrderChecklistItem
     {
+        $this->assertCanAttachPhoto($item, $by);
+        $item->update(['media_id' => $media->id]);
+
+        return $item;
+    }
+
+    /** Conferido antes de guardar a foto: a foto anterior só é substituída se a nova vai mesmo para o item. */
+    public function assertCanAttachPhoto(OrderChecklistItem $item, User $by): void
+    {
         $this->assertCanEdit($item, $by);
 
         if (! $item->isNonConformity()) {
             throw new DomainException('Foto só para item com troca ou nível baixo.');
         }
-
-        $item->update(['media_id' => $media->id]);
-
-        return $item;
     }
 
     /** "Marcar o resto como em funcionamento": só os itens comuns (fluido precisa do nível de verdade). */

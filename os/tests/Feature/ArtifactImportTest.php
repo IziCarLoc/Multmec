@@ -156,6 +156,23 @@ class ArtifactImportTest extends TestCase
         $this->assertStringContainsString('2 OS do v12', $preview['sections']['os']['problems'][0]);
     }
 
+    public function test_so_izi_car_vai_para_a_izi_e_valor_em_texto_segue_o_jeito_brasileiro(): void
+    {
+        $this->import()->apply($this->export([
+            'receber.r1.cliente' => 'Izidoro Exemplo',
+            'receber.r1.valor' => '1.500',
+            'receber.r4.cliente' => 'Motorista Izi',
+            'receber.r4.valor' => '1.234,56',
+        ]), $this->gestor);
+
+        $izidoro = Receivable::query()->where('legacy_id', 'receber:r1')->firstOrFail();
+        $this->assertFalse((bool) $izidoro->customer->is_izi_fleet);
+        $this->assertSame(150_000, $izidoro->total_cents);
+        $driver = Receivable::query()->where('legacy_id', 'receber:r4')->firstOrFail();
+        $this->assertTrue((bool) $driver->customer->is_izi_fleet);
+        $this->assertSame(123_456, $driver->total_cents);
+    }
+
     public function test_arquivo_errado_e_avisado(): void
     {
         foreach (['isto não é json', '{"qualquer": 1}'] as $bad) {

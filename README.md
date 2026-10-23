@@ -1,6 +1,6 @@
 # Multmec: controle financeiro e plano de R$ 100 mil
 
-Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, plano de negócio e um sistema de controle financeiro simples, pronto para hospedar.
+Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, plano de negócio e o **sistema da oficina** (ordens de serviço e financeiro), publicado em https://multmec.izicarlocadora.com.
 
 > **Comece por [`docs/00-resumo-executivo.md`](docs/00-resumo-executivo.md)** (uma página).
 
@@ -18,23 +18,23 @@ Projeto de gestão da oficina **Multmec** (Santa Maria/RS): análise dos dados, 
 | [`docs/07-perguntas-e-pendencias.md`](docs/07-perguntas-e-pendencias.md) | Perguntas para o dono e o que ficou de fora |
 | [`docs/08-hospedagem.md`](docs/08-hospedagem.md) | Como colocar no ar, backup e segurança |
 | [`docs/09-conciliacao-compras.md`](docs/09-conciliacao-compras.md) | Conferência de compras: nota fiscal × boleto × OS, auditoria e trava de pagamento; quem lança × quem paga; empresas do grupo (locadora, sócio); nota sem XML; DDA do banco |
-| [`os/`](os) | **Sistema de ordens de serviço** da Multmec Liberdade (Laravel, para a Hostinger): vistoria, cotação, orçamento com aceite, execução, conferência e entrega. Veja [`os/README.md`](os/README.md) |
-| [`app/`](app) | O controle financeiro (Node.js + SQLite), com testes |
+| [`os/`](os) | **O sistema em uso** (Laravel, na Hostinger): ordens de serviço (vistoria, cotação, orçamento com aceite, execução, conferência e entrega) e o Financeiro (a receber, a pagar, meta do mês, crédito a prazo, contas fixas, conferência de compras, relatórios). Veja [`os/README.md`](os/README.md) |
+| [`app/`](app) | O controle financeiro antigo (Node.js + SQLite), **substituído pelo Financeiro de `os/`**. Fica como referência: os cálculos (boleto, NF-e, DANFE, DDA, dias úteis) e os vetores de teste foram portados |
 | [`analise/`](analise) | Scripts em Python que geram os números e gráficos do diagnóstico |
 
 ## Rodar o sistema
+
+O sistema em uso está em [`os/`](os): veja [`os/README.md`](os/README.md) (rodar no computador, publicar, backup).
+
+O controle financeiro antigo, em Node (`app/`), não é mais usado. Para consultar:
 
 ```bash
 cd app
 npm install
 npm run demo     # banco de demonstração com dados inventados
-npm start        # http://localhost:3000  (senha de desenvolvimento: multmec; para testar o perfil de lançamento: APP_PASSWORD_LANCAMENTO=lancar npm start)
-npm test         # 180 testes
+npm start        # http://localhost:3000  (senha de desenvolvimento: multmec)
+npm test
 ```
-
-Com os dados reais: exporte a aba SERVIÇOS da planilha como CSV e use a tela **Importar** (ou `npm run importar -- servicos.csv --corte AAAA-MM-DD`).
-
-Em produção, o sistema **recusa subir sem `APP_PASSWORD`** (mínimo 10 caracteres). Para quem só lança notas e boletos, defina também `APP_PASSWORD_LANCAMENTO` (perfil que não paga). Veja [`docs/08-hospedagem.md`](docs/08-hospedagem.md).
 
 ## Regenerar a análise
 

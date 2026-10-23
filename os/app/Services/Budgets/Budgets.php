@@ -82,6 +82,11 @@ final class Budgets
         $missing = array_merge($missing, $this->quotations->missing($order, $items));
 
         foreach ($items as $item) {
+            // As mesmas regras do diagnóstico valem aqui: o atendimento também lança e muda itens na cotação.
+            if ($item->isService() && (float) $item->hours <= 0) {
+                $missing[] = ['label' => 'Horas estimadas: '.$item->description, 'tab' => 'itens', 'field' => 'item-'.$item->id];
+            }
+
             if ($item->price_cents === null) {
                 $missing[] = ['label' => 'Preço: '.$item->description, 'tab' => 'orcamento', 'field' => 'preco-'.$item->id];
             }

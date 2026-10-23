@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Concerns\BuildsOrders;
 use Tests\TestCase;
@@ -102,6 +103,29 @@ class InspectionScreenTest extends TestCase
 
         $page->call('setFuel', '1/2')->assertDispatched('toast', type: 'error');
         $this->assertNull($order->fresh()->fuel_in);
+    }
+
+    public function test_foto_recusada_do_item_nao_tira_a_anterior_e_pdf_preparado_fica_travado(): void
+    {
+        $order = $this->order(Stage::EmVistoria);
+        $this->actingAs(User::factory()->mecanico()->create());
+        $page = Livewire::test('pages::auth.orders.inspection', ['order' => $order]);
+        $battery = $order->checklistItems()->where('label', 'Bateria')->sole();
+        $page->call('answer', $battery->id, 'troca');
+        $file = UploadedFile::fake()->image('bateria.jpg', 800, 600);
+        $page->set('upload', $file)->call('savePhoto', 'item:'.$battery->id, hash_file('sha256', $file->getRealPath()), null);
+        $first = $battery->fresh()->media_id;
+        $this->assertNotNull($first);
+
+        // Em outra aba a bateria voltou a "em funcionamento": a foto nova é recusada e a anterior continua valendo.
+        $battery->update(['state' => 'ok']);
+        $other = UploadedFile::fake()->image('outra.jpg', 800, 600);
+        $page->set('upload', $other)->call('savePhoto', 'item:'.$battery->id, hash_file('sha256', $other->getRealPath()), null)
+            ->assertDispatched('toast', type: 'error');
+        $this->assertNull(Media::query()->findOrFail($first)->replaced_at);
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        $page->set('preparedPath', $order->storageDir().'/vistoria-entrada-20260101-000000.pdf');
     }
 
     public function test_campos_da_parte_a_gravam_na_hora(): void

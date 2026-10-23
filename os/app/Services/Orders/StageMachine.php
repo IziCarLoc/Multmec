@@ -260,7 +260,9 @@ final class StageMachine
     {
         if ($to === Stage::Aprovada && app(Execution::class)->partsPending($order)) {
             $this->transition($order, Stage::Aprovada, Stage::AguardandoPecas, null, 'Automático: peça aprovada ainda não chegou.', fn () => null);
-        } elseif ($to === Stage::EmExecucao && in_array($from, [Stage::Aprovada, Stage::AguardandoPecas], true) && $by && Gate::forUser($by)->allows('oficina')) {
+        } elseif ($to === Stage::EmExecucao && in_array($from, [Stage::Aprovada, Stage::AguardandoPecas], true) && $by?->isMecanico()) {
+            // Só o mecânico entra apontando: o gestor que toca em "Iniciar serviço" não vira executor da OS (e continua
+            // podendo conferir). O mecânico também inicia o próprio apontamento na tela da execução.
             app(WorkLog::class)->start($order, $by);
         } elseif ($to === Stage::EmConferencia && $from === Stage::EmExecucao) {
             $order->update(['work_finished_at' => now(), 'work_finished_by' => $by?->id]);

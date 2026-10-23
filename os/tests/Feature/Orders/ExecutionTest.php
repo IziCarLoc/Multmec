@@ -4,7 +4,9 @@ namespace Tests\Feature\Orders;
 
 use App\Enums\PartOrigin;
 use App\Enums\Stage;
+use App\Models\AuditLog;
 use App\Models\Consent;
+use App\Models\Media;
 use App\Models\OrderItem;
 use App\Models\ServiceOrder;
 use App\Models\StageTransition;
@@ -263,6 +265,52 @@ class ExecutionTest extends TestCase
 
         $consent = Consent::query()->where('purpose', Consent::PURPOSE_FINAL_CHECK)->firstOrFail();
         $this->assertSame([$this->joao->name, 'completo', 4], [$consent->signer_name, $consent->snapshot['modelo'], count($consent->snapshot['rodas'])]);
+    }
+
+    public function test_depois_do_corrigir_rodas_e_test_drive_sao_feitos_de_novo(): void
+    {
+        $order = $this->inExecution();
+        app(Execution::class)->update($order, ['has_wheel_work' => true, 'torque_nm' => 110, 'torque_wrench' => 'T-01', 'requires_test_drive' => true], $this->robson);
+        $order = $this->machine()->move($this->completeWork($order->fresh()), Stage::EmExecucao, Stage::EmConferencia, $this->robson);
+        $check = app(FinalCheck::class);
+        $items = $check->start($order, 'expresso', $this->joao);
+
+        foreach (array_keys(FinalCheck::WHEELS) as $wheel) {
+            [$file, $hash] = $this->photo();
+            $check->storeWheelPhoto($order, $wheel, $file, $hash, null, $this->joao);
+        }
+
+        $check->recordTestDrive($order, ['km_before' => '61.230', 'km_after' => '61.236', 'started_at' => now()->subMinutes(20)->toDateTimeString(), 'ended_at' => now()->toDateTimeString(), 'driver_id' => $this->joao->id, 'route' => 'Volta da quadra'], $this->joao);
+        $check->answer($items->first(), 'corrigir', 'Parafuso da roda sem a listra', $this->joao);
+        $order = $this->machine()->move($order->fresh(), Stage::EmConferencia, Stage::EmExecucao, $this->joao, 'Parafuso da roda sem a listra');
+        $order = $this->machine()->move($order, Stage::EmExecucao, Stage::EmConferencia, $this->robson);
+
+        // Rodada 2: as fotos e o test drive da rodada 1 não valem (ficam guardados), e são pedidos de novo.
+        $check->start($order, 'expresso', $this->joao);
+        $labels = $this->labels($check->missing($order->fresh(), $this->joao));
+        $this->assertContains('Foto da roda com a listra: dianteira esquerda', $labels);
+        $this->assertContains('Test drive (km, hora, quem dirigiu e trajeto)', $labels);
+        $this->assertSame(4, Media::query()->where('service_order_id', $order->id)->where('kind', 'roda')->whereNotNull('replaced_at')->count());
+        $this->assertSame('Volta da quadra', AuditLog::query()->where('action', 'final_check.test_drive_redo')->sole()->changes['trajeto']);
+    }
+
+    public function test_gestor_que_inicia_nao_vira_executor_e_o_atendimento_nao_digita_torque(): void
+    {
+        $order = $this->approvedOrder();
+        $gestor = User::factory()->gestor()->create();
+        $order = $this->machine()->move($order, $order->stage, Stage::EmExecucao, $gestor);
+
+        $this->assertFalse(app(WorkLog::class)->workedOn($order, $gestor));
+
+        try {
+            app(Execution::class)->update($order, ['torque_nm' => 110], $this->giovana);
+            $this->fail('O atendimento não digita o torque.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('mecânico', $e->getMessage());
+        }
+
+        app(Execution::class)->update($order, ['has_wheel_work' => true], $this->giovana);
+        $this->assertSame(110, app(Execution::class)->update($order->fresh(), ['torque_nm' => 110], $this->robson)->torque_nm);
     }
 
     public function test_apontamento_esquecido_fecha_a_noite_e_fica_marcado(): void

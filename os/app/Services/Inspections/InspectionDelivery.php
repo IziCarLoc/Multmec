@@ -62,22 +62,28 @@ final class InspectionDelivery
     /**
      * Gera e guarda o PDF que vai ser enviado (só com a parte A completa).
      *
-     * @return array{path: string, sha256: string, binary: string, at: CarbonImmutable}
+     * O resumo dos dados (SHA-256) é o do momento do PDF: se a vistoria mudar antes de confirmar o envio, o resumo
+     * gravado não bate com o atual e o sistema pede para enviar de novo.
+     *
+     * @return array{path: string, sha256: string, binary: string, at: CarbonImmutable, snapshot_sha256: string}
      */
     public function preparePdf(ServiceOrder $order, User $by): array
     {
         $this->assertReady($order, $by);
         $at = CarbonImmutable::now();
+        $snapshot = $this->inspection->snapshotHash($order);
         $binary = $this->pdf->render($order, $at);
         $path = $order->storageDir().'/vistoria-entrada-'.$at->format('Ymd-His').'.pdf';
         Storage::disk(Media::DISK)->put($path, $binary);
 
-        return ['path' => $path, 'sha256' => hash('sha256', $binary), 'binary' => $binary, 'at' => $at];
+        return ['path' => $path, 'sha256' => hash('sha256', $binary), 'binary' => $binary, 'at' => $at, 'snapshot_sha256' => $snapshot];
     }
 
     /** Registra o envio pelo WhatsApp (hora do servidor), com o PDF e o resumo do que foi enviado. */
     public function markSent(ServiceOrder $order, string $via, User $by, ?array $prepared = null): ServiceOrder
     {
+        // Com o PDF já preparado também: quem registra o envio precisa poder enviar a vistoria agora.
+        $this->assertReady($order, $by);
         $prepared ??= $this->preparePdf($order, $by);
 
         $order->update([
@@ -86,7 +92,7 @@ final class InspectionDelivery
             'inspection_sent_via' => in_array($via, ['compartilhar', 'whatsapp', 'manual'], true) ? $via : 'manual',
             'inspection_pdf_path' => $prepared['path'],
             'inspection_pdf_sha256' => $prepared['sha256'],
-            'inspection_snapshot_sha256' => $this->inspection->snapshotHash($order),
+            'inspection_snapshot_sha256' => $prepared['snapshot_sha256'] ?? $this->inspection->snapshotHash($order),
         ]);
 
         AuditLog::record($order, 'inspection.sent', null, ['como' => $via, 'pdf_sha256' => $prepared['sha256']]);
