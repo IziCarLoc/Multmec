@@ -84,13 +84,14 @@ final class Profit
         return $this->partsCost($receivable);
     }
 
-    public function grossFor(Receivable $receivable): int
+    /** `$providerCost` já calculado em lote (`providerCosts`) evita duas consultas por lançamento em listas longas. */
+    public function grossFor(Receivable $receivable, ?int $providerCost = null): int
     {
         if ($receivable->opening_balance) {
             return 0;
         }
 
-        return $this->gross($receivable->total_cents, $this->partsCost($receivable), $receivable->freight_cents, $this->providerCost($receivable));
+        return $this->gross($receivable->total_cents, $this->partsCost($receivable), $receivable->freight_cents, $providerCost ?? $this->providerCost($receivable));
     }
 
     public function partFor(Receivable $receivable): int
@@ -106,13 +107,13 @@ final class Profit
      * Parte do lucro bruto que já entrou com um pagamento: proporcional ao que foi pago (o Painel soma o lucro
      * no mês em que o dinheiro entrou, como o artefato).
      */
-    public function realizedBy(Receivable $receivable, int $paidCents): int
+    public function realizedBy(Receivable $receivable, int $paidCents, ?int $providerCost = null): int
     {
         if ($receivable->total_cents <= 0 || $receivable->opening_balance) {
             return 0;
         }
 
-        return (int) round($this->grossFor($receivable) * $paidCents / $receivable->total_cents);
+        return (int) round($this->grossFor($receivable, $providerCost) * $paidCents / $receivable->total_cents);
     }
 
     private function partsCost(Receivable $receivable): int

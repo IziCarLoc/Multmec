@@ -15,6 +15,7 @@ use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -41,6 +42,7 @@ new class extends Component
     public string $budgetNotes = '';
 
     // Envio pelo WhatsApp (PDF) e link
+    #[Locked]
     public ?string $preparedPath = null;
 
     public bool $askSentConfirmation = false;

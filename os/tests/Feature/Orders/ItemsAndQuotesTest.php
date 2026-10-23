@@ -10,6 +10,7 @@ use App\Models\OrderItem;
 use App\Models\QuoteResponse;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Budgets\Budgets;
 use App\Services\Items\OrderItems;
 use App\Services\Media\MediaStore;
 use App\Services\Orders\StageGate;
@@ -253,6 +254,19 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertSame([], app(StageGate::class)->missing($order, Stage::AguardandoAprovacao));
         $this->assertSame(Stage::AguardandoAprovacao, app(StageMachine::class)->move($order, Stage::AguardandoCotacao, Stage::AguardandoAprovacao, $giovana)->stage);
         $this->assertSame(90000, $order->budgets()->firstOrFail()->total_cents);
+
+        // Depois do aceite, trocar o vencedor não mexe no item que foi para o cliente (origem e custo do aceite).
+        $budget = $order->budgets()->firstOrFail();
+        app(Budgets::class)->approve($budget, ['method' => 'presencial', 'items' => $budget->items->pluck('id')->all(), 'signer_name' => 'Cliente de Teste', 'signer_document' => '52998224725'], $giovana);
+
+        try {
+            $quotations->chooseWinner($cheaper->fresh(), $giovana);
+            $this->fail('Item do orçamento aceito não troca de vencedor.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('já foi para o cliente', $e->getMessage());
+        }
+
+        $this->assertSame([$a->id, 32000, PartOrigin::Original], [$part->fresh()->supplier_id, $part->fresh()->cost_cents, $part->fresh()->origin]);
     }
 
     public function test_video_sem_hash_diferente_grande_ou_que_nao_e_video_e_recusado(): void

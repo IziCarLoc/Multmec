@@ -4,10 +4,12 @@ namespace App\Services\Orders;
 
 use App\Enums\Role;
 use App\Enums\Stage;
+use App\Models\Budget;
+use App\Models\OrderItem;
 use App\Models\ServiceOrder;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Services\Budgets\Budgets;
-use App\Services\Execution\WorkLog;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 
@@ -52,12 +54,13 @@ final class Inbox
             Role::Gestor => [],
         };
 
+        // Conferência é de quem não apontou tempo na OS (as OS em que a pessoa apontou, numa consulta só).
+        $worked = TimeEntry::query()->where('user_id', $user->id)->distinct()->pluck('service_order_id')->flip();
         $orders = ServiceOrder::query()->with(['vehicle', 'customer', 'responsible'])
             ->inStage(...array_map(fn (string $stage) => Stage::from($stage), array_keys($tasks)))
             ->orderBy('stage_changed_at')
             ->get()
-            // Conferência é de quem não apontou tempo na OS.
-            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && app(WorkLog::class)->workedOn($order, $user))
+            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && $worked->has($order->id))
             ->map(fn (ServiceOrder $order) => ['order' => $order, 'task' => $tasks[$order->stage->value]]);
 
         if ($user->isGestor()) {
@@ -84,19 +87,23 @@ final class Inbox
 
         $budgets = app(Budgets::class);
         $tasks = collect();
-        $orders = ServiceOrder::query()->with(['vehicle', 'customer', 'responsible'])
+        // Lido em lote (o contador do menu roda em toda tela): itens das OS e o orçamento esperando resposta de cada uma
+        // (o mesmo que Budgets::pending e draftItems, sem uma consulta por OS).
+        $orders = ServiceOrder::query()->with(['vehicle', 'customer', 'responsible', 'items:id,service_order_id,budget_id'])
             ->inStage(Stage::AguardandoAprovacao, ...Budgets::ADDENDUM_STAGES)
             ->orderBy('stage_changed_at')
             ->get();
+        $pendingByOrder = Budget::query()->whereIn('service_order_id', $orders->modelKeys())->where('status', Budget::STATUS_SENT)
+            ->orderByDesc('number')->get()->unique('service_order_id')->keyBy('service_order_id');
 
         foreach ($orders as $order) {
-            $pending = $budgets->pending($order);
+            $pending = $pendingByOrder->get($order->id)?->setRelation('serviceOrder', $order);
 
             if ($pending && $user->isGestor() && $budgets->aboveAuthority($pending)) {
                 $tasks->push(['order' => $order, 'task' => 'Aprovar acima da alçada da Izi ('.Money::brl($pending->total_cents).')']);
             } elseif ($pending && $pending->isAddendum() && ! $user->isGestor()) {
                 $tasks->push(['order' => $order, 'task' => 'Cobrar o aceite do adendo']);
-            } elseif (! $pending && Budgets::isAddendumStage($order->stage) && ! $user->isGestor() && $budgets->draftItems($order)->isNotEmpty()) {
+            } elseif (! $pending && Budgets::isAddendumStage($order->stage) && ! $user->isGestor() && $order->items->contains(fn (OrderItem $item) => ! $item->isFrozen())) {
                 $tasks->push(['order' => $order, 'task' => 'Montar o adendo (item novo)']);
             }
         }

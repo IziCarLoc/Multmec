@@ -115,6 +115,11 @@ final class Execution
             throw new DomainException('Isso é registrado durante a execução.');
         }
 
+        // O torque é medido pelo mecânico, com o torquímetro na mão: o atendimento não digita (CLAUDE.md).
+        if ((array_key_exists('torque_nm', $data) || array_key_exists('torque_wrench', $data)) && ! Gate::forUser($by)->allows('oficina')) {
+            throw new DomainException('O torque é digitado pelo mecânico que apertou as rodas.');
+        }
+
         $values = [];
 
         if (array_key_exists('has_wheel_work', $data)) {

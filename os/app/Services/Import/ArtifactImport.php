@@ -18,6 +18,7 @@ use App\Services\Finance\Receivables;
 use App\Services\Registry\IziFleet;
 use App\Support\Document;
 use App\Support\LicensePlate;
+use App\Support\Money;
 use App\Support\Phone;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -493,7 +494,8 @@ final class ArtifactImport
     {
         $name = $this->clean($name);
 
-        if (preg_match('/\bIZI/u', Str::upper(Str::ascii($name))) === 1) {
+        // "IZICAR", "ANDRE/IZICAR", "MOTORISTA IZI", "Izi Car"; não "Izidoro" nem "Izilda".
+        if (preg_match('/\bIZI(\s*CAR)?\b/u', Str::upper(Str::ascii($name))) === 1) {
             return IziFleet::customer();
         }
 
@@ -573,10 +575,10 @@ final class ArtifactImport
     private function cents(mixed $value): int
     {
         if (is_string($value)) {
-            $value = str_replace(',', '.', preg_replace('/[^\d,.-]/', '', $value) ?? '');
+            return max(0, Money::parseBr($value) ?? 0); // "1.500" = R$ 1.500, "1.234,56", "3000.0"
         }
 
-        return is_numeric($value) ? max(0, (int) round(((float) $value) * 100)) : 0;
+        return is_int($value) || is_float($value) ? max(0, (int) round($value * 100)) : 0;
     }
 
     private function date(mixed $value): ?string

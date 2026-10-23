@@ -191,6 +191,12 @@ final class Quotations
             $response->update(['is_winner' => true]);
 
             $item = OrderItem::query()->findOrFail($response->os_item_id);
+
+            // Item que já foi para o cliente no orçamento não muda (fornecedor, custo e origem estão no aceite).
+            if ($item->isFrozen()) {
+                throw new DomainException('"'.$item->description.'" já foi para o cliente no orçamento e não muda mais. Para refazer, o gestor volta a etapa.');
+            }
+
             $item->update([
                 'supplier_id' => $response->supplier_id,
                 'cost_cents' => $response->cost_cents,
