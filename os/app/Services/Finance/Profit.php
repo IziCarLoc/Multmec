@@ -2,6 +2,7 @@
 
 namespace App\Services\Finance;
 
+use App\Models\ProviderPayment;
 use App\Models\Receivable;
 
 /**
@@ -23,12 +24,24 @@ final class Profit
     }
 
     /**
-     * Custo do prestador externo do lançamento. Hoje o "A receber" não tem custo de prestador próprio, então é
-     * zero; quando o lançamento vier da OS aprovada, o custo dos serviços de prestador da OS entra aqui.
+     * Custo do prestador externo do lançamento: os pagamentos de prestador da mesma OS (lançados na entrega),
+     * divididos entre as parcelas na proporção do valor de cada uma. Lançamento sem OS não tem prestador.
      */
     public function providerCost(Receivable $receivable): int
     {
-        return 0;
+        if ($receivable->service_order_id === null) {
+            return 0;
+        }
+
+        $provider = (int) ProviderPayment::query()->where('service_order_id', $receivable->service_order_id)->sum('amount_cents');
+
+        if ($provider === 0) {
+            return 0;
+        }
+
+        $orderTotal = (int) Receivable::query()->where('service_order_id', $receivable->service_order_id)->sum('total_cents');
+
+        return $orderTotal > 0 ? (int) round($provider * $receivable->total_cents / $orderTotal) : 0;
     }
 
     public function grossFor(Receivable $receivable): int

@@ -61,6 +61,7 @@ new #[Title('Lista de OS')] class extends Component
         <div class="flex gap-2 ml-auto">
             <a href="{{ route('dashboard') }}" wire:navigate class="{{ $btnSecondary }}"><i class="fas fa-table-columns"></i> Quadro</a>
             @can('atendimento')
+                <a href="{{ route('orders.monthly') }}" wire:navigate class="{{ $btnSecondary }}" data-test="por-mes"><i class="fas fa-calendar"></i> Por mês</a>
                 <a href="{{ route('orders.create') }}" wire:navigate class="{{ $btnPrimary }}"><i class="fas fa-plus"></i> Nova OS</a>
             @endcan
         </div>

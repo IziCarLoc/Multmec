@@ -20,6 +20,8 @@ class Consent extends Model
 
     public const PURPOSE_FINAL_CHECK = 'conferencia';
 
+    public const PURPOSE_PICKUP = 'retirada';
+
     public const METHOD_SCREEN = 'assinatura_tela';
 
     public const METHOD_LINK = 'link';

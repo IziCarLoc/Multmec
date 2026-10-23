@@ -7,6 +7,7 @@ use App\Models\Budget;
 use App\Models\ServiceOrder;
 use App\Models\User;
 use App\Services\Budgets\Budgets;
+use App\Services\Delivery\Delivery;
 use App\Services\Execution\Execution;
 use App\Services\Execution\FinalCheck;
 use App\Services\Inspections\EntryInspection;
@@ -28,6 +29,7 @@ final class StageGate
         private readonly Budgets $budgets,
         private readonly Execution $execution,
         private readonly FinalCheck $finalCheck,
+        private readonly Delivery $delivery,
     ) {}
 
     /**
@@ -111,6 +113,13 @@ final class StageGate
             case Stage::ProntaRetirada:
                 if ($order->stage === Stage::EmConferencia) {
                     $missing = $this->finalCheck->missing($order, $by);
+                }
+                break;
+
+            case Stage::Entregue:
+                if ($order->stage === Stage::ProntaRetirada) {
+                    $missing = $this->delivery->missing($order);
+                    $need($this->delivery->pickupSigned($order), 'Termo de retirada assinado por quem retira (aba Entrega)', 'entrega', 'termo');
                 }
                 break;
 

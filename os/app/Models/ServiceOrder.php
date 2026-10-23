@@ -79,6 +79,9 @@ class ServiceOrder extends Model
         'final_check_template',
         'final_check_round',
         'final_checker_id',
+        'replaced_parts',
+        'delivered_by',
+        'invoice_updated_at',
     ];
 
     protected function casts(): array
@@ -111,6 +114,7 @@ class ServiceOrder extends Model
             'test_drive_started_at' => 'datetime',
             'test_drive_ended_at' => 'datetime',
             'final_check_round' => 'integer',
+            'invoice_updated_at' => 'datetime',
         ];
     }
 

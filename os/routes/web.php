@@ -4,6 +4,8 @@ use App\Http\Controllers\BudgetPdfController;
 use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\InspectionPdfController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\MonthlyReportController;
+use App\Http\Controllers\OrderPdfController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -37,6 +39,9 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
     Route::get('/midia/{media}/{variant?}', [MediaController::class, 'show'])->whereNumber('media')->name('media.show');
 
     Route::middleware('can:atendimento')->group(function () {
+        Route::livewire('/os/por-mes', 'pages::auth.orders.monthly')->name('orders.monthly');
+        Route::get('/os/por-mes.pdf', [MonthlyReportController::class, 'show'])->name('orders.monthly.pdf');
+        Route::get('/os/{order}/os.pdf', [OrderPdfController::class, 'show'])->whereNumber('order')->name('orders.pdf');
         Route::get('/os/{order}/orcamento-previa.pdf', [BudgetPdfController::class, 'show'])->whereNumber('order')->name('orders.budget.preview');
         Route::get('/os/{order}/orcamento/{budget}.pdf', [BudgetPdfController::class, 'show'])->whereNumber(['order', 'budget'])->name('orders.budget.pdf');
         Route::livewire('/clientes-e-veiculos', 'pages::auth.registry.index')->name('registry');
