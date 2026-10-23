@@ -98,7 +98,8 @@ class ArtifactImportTest extends TestCase
 
         [$first, $second] = Payable::query()->where('document_number', '4512')->orderBy('installment_number')->get()->all();
         $this->assertSame([15050, '1/2', '2/2'], [$first->amount_cents, $first->installmentLabel(), $second->installmentLabel()]);
-        $this->assertNotNull($first->installment_group);
+        // UUID versão 5 com a variante do padrão: o MariaDB (produção) recusa outro formato na coluna uuid.
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $first->installment_group);
         $this->assertSame($first->installment_group, $second->installment_group);
         $this->assertSame([Payable::STATUS_PAID, '2026-09-14'], [Payable::query()->where('legacy_id', 'boletos:b3')->value('status'), Payable::query()->where('legacy_id', 'boletos:b3')->first()->paid_on->toDateString()]);
 

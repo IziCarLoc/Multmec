@@ -22,6 +22,7 @@ use App\Support\Phone;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 use Throwable;
 
 /**
@@ -595,12 +596,13 @@ final class ArtifactImport
         return $this->clean(preg_replace(self::INSTALLMENT, '', (string) $text) ?? '');
     }
 
-    /** UUID fixo a partir de um texto (o mesmo texto dá sempre o mesmo grupo de parcelas). */
+    /**
+     * UUID fixo a partir de um texto (o mesmo texto dá sempre o mesmo grupo de parcelas). Versão 5 de verdade: a
+     * coluna `uuid` do MariaDB recusa um UUID com os bits de versão e variante fora do padrão.
+     */
     private function uuid(string $seed): string
     {
-        $hex = md5('artefato|'.$seed);
-
-        return substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-'.substr($hex, 12, 4).'-'.substr($hex, 16, 4).'-'.substr($hex, 20, 12);
+        return Uuid::uuid5(Uuid::NAMESPACE_OID, 'multmec-artefato|'.$seed)->toString();
     }
 
     private function count(string $section, string $what, int $cents = 0): void
