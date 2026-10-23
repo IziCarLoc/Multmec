@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Conta a pagar (boleto de fornecedor). Regras em App\Services\Finance\Payables.
@@ -66,6 +67,12 @@ class Payable extends Model
     public function recurringBill(): BelongsTo
     {
         return $this->belongsTo(RecurringBill::class);
+    }
+
+    /** O boleto da conferência de compras que é esta conta (quando o boleto passou por Compras). */
+    public function bankSlip(): HasOne
+    {
+        return $this->hasOne(BankSlip::class);
     }
 
     public function isPaid(): bool

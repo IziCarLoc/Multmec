@@ -36,9 +36,15 @@
     }
 
     // CPF/CNPJ: máscara pelo tamanho (11 dígitos = CPF, 14 = CNPJ). Uso: componente Blade x-document-input (model="campo").
+    // Com letra é o CNPJ alfanumérico da Receita (12 letras ou números e 2 dígitos): mantém as letras, em maiúsculas.
     window.docMask = {
         format(text) {
-            const d = String(text ?? '').replace(/\D/g, '').slice(0, 14)
+            const raw = String(text ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '')
+            if (/[A-Z]/.test(raw)) {
+                return raw.slice(0, 14).replace(/^([0-9A-Z]{2})([0-9A-Z])/, '$1.$2').replace(/^([0-9A-Z]{2})\.([0-9A-Z]{3})([0-9A-Z])/, '$1.$2.$3')
+                    .replace(/\.([0-9A-Z]{3})([0-9A-Z])/, '.$1/$2').replace(/([0-9A-Z]{4})([0-9A-Z])/, '$1-$2')
+            }
+            const d = raw.replace(/\D/g, '').slice(0, 14)
             return d.length <= 11
                 ? d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
                 : d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2')
