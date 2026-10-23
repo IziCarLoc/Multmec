@@ -72,6 +72,8 @@ new class extends Component
                 $order->stage === Stage::EmVistoria => 'vistoria',
                 $order->stage === Stage::AguardandoCotacao && auth()->user()->can('atendimento') => $order->items()->get()->contains(fn ($i) => $i->toQuote() && $i->supplier_id === null) ? 'cotacao' : 'orcamento',
                 $order->stage === Stage::AguardandoAprovacao && auth()->user()->can('atendimento') => 'orcamento',
+                in_array($order->stage, [Stage::Aprovada, Stage::AguardandoPecas, Stage::EmExecucao], true) => 'execucao',
+                $order->stage === Stage::EmConferencia => 'conferencia',
                 default => $this->tab,
             };
         }
@@ -116,7 +118,7 @@ new class extends Component
     #[Computed]
     public function missing(): array
     {
-        return collect($this->targets)->mapWithKeys(fn (Stage $to) => [$to->value => app(StageGate::class)->missing($this->order, $to)])->all();
+        return collect($this->targets)->mapWithKeys(fn (Stage $to) => [$to->value => app(StageGate::class)->missing($this->order, $to, auth()->user())])->all();
     }
 
     #[Computed]
@@ -163,7 +165,9 @@ new class extends Component
 
         if ($this->needsReason($target) && $this->reasonFor !== $to) {
             $this->reasonFor = $to;
-            $this->reason = '';
+            // CORRIGIR: o motivo já vem com o que a conferência marcou.
+            $this->reason = app(\App\Services\Execution\FinalCheck::class)->items($this->order)
+                ->where('state', 'corrigir')->map(fn ($item) => $item->label.': '.$item->detail)->implode('; ');
 
             return;
         }
@@ -305,6 +309,8 @@ new class extends Component
         'itens' => 'Peças e serviços',
         'cotacao' => $user->can('atendimento') ? 'Cotação' : null,
         'orcamento' => $user->can('atendimento') ? 'Orçamento' : null,
+        'execucao' => $order->stage->position() >= Stage::Aprovada->position() && $order->stage !== Stage::Cancelada ? 'Execução' : null,
+        'conferencia' => $order->final_check_round > 0 ? 'Conferência' : null,
         'historico' => 'Histórico',
     ]);
 @endphp
@@ -467,6 +473,10 @@ new class extends Component
         <livewire:pages::auth.orders.items :order="$order" :key="'itens-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'cotacao' && $user->can('atendimento'))
         <livewire:pages::auth.orders.quote :order="$order" :key="'cotacao-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'execucao' && isset($tabs['execucao']))
+        <livewire:pages::auth.orders.execution :order="$order" :key="'execucao-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'conferencia' && isset($tabs['conferencia']))
+        <livewire:pages::auth.orders.final-check :order="$order" :key="'conferencia-'.$order->id.'-'.$order->stage->value.'-'.$order->final_check_round" />
     @elseif ($tab === 'orcamento' && $user->can('atendimento'))
         <livewire:pages::auth.orders.budget :order="$order" :open="$decisionToOpen" :key="'orcamento-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'problema')

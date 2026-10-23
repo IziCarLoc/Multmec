@@ -18,6 +18,8 @@ class Consent extends Model
 
     public const PURPOSE_REFUSAL = 'recusa';
 
+    public const PURPOSE_FINAL_CHECK = 'conferencia';
+
     public const METHOD_SCREEN = 'assinatura_tela';
 
     public const METHOD_LINK = 'link';
@@ -27,6 +29,9 @@ class Consent extends Model
     public const METHOD_IN_PERSON = 'presencial';
 
     public const METHOD_AUTHORITY = 'alcada';
+
+    /** Confirmação de quem está logado (liberação da conferência). */
+    public const METHOD_CONFIRMATION = 'confirmacao';
 
     protected $fillable = [
         'service_order_id',

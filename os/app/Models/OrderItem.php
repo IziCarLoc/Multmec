@@ -43,6 +43,9 @@ class OrderItem extends Model
         'price_cents',
         'budget_id',
         'approval',
+        'received_at',
+        'received_by',
+        'not_used',
         'brand',
         'lead_time',
         'requires_photos',
@@ -62,6 +65,8 @@ class OrderItem extends Model
             'price_cents' => 'integer',
             'requires_photos' => 'boolean',
             'position' => 'integer',
+            'received_at' => 'datetime',
+            'not_used' => 'boolean',
         ];
     }
 
@@ -78,6 +83,17 @@ class OrderItem extends Model
     public function mechanic(): BelongsTo
     {
         return $this->belongsTo(User::class, 'mechanic_id');
+    }
+
+    /** Fotos da peça (velha e nova), as que valem (não refeitas). */
+    public function media(): HasMany
+    {
+        return $this->hasMany(Media::class, 'os_item_id')->whereNull('replaced_at');
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->approval === self::APPROVED;
     }
 
     public function budget(): BelongsTo

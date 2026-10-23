@@ -7,6 +7,7 @@ use App\Enums\Stage;
 use App\Models\ServiceOrder;
 use App\Models\User;
 use App\Services\Budgets\Budgets;
+use App\Services\Execution\WorkLog;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 
@@ -55,8 +56,8 @@ final class Inbox
             ->inStage(...array_map(fn (string $stage) => Stage::from($stage), array_keys($tasks)))
             ->orderBy('stage_changed_at')
             ->get()
-            // Conferência é de quem não fez o serviço (a regra completa, por apontamento, vem com a execução).
-            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && $order->responsible_id === $user->id)
+            // Conferência é de quem não apontou tempo na OS.
+            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && app(WorkLog::class)->workedOn($order, $user))
             ->map(fn (ServiceOrder $order) => ['order' => $order, 'task' => $tasks[$order->stage->value]]);
 
         if ($user->isGestor()) {

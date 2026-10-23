@@ -3,6 +3,7 @@
 namespace Tests\Feature\Orders;
 
 use App\Enums\Stage;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Orders\Inbox;
@@ -69,8 +70,9 @@ class RegistryAndInboxTest extends TestCase
         $aberta = $this->order(Stage::Aberta);
         $diagnostico = $this->order(Stage::EmDiagnostico);
         $robson = User::factory()->mecanico()->create();
-        $conferirDoRobson = $this->order(Stage::EmConferencia, ['responsible_id' => $robson->id]);
-        $conferirDeOutro = $this->order(Stage::EmConferencia);
+        $conferirDoRobson = $this->order(Stage::EmConferencia);
+        TimeEntry::create(['service_order_id' => $conferirDoRobson->id, 'user_id' => $robson->id, 'started_at' => now()->subHour(), 'ended_at' => now()]);
+        $conferirDeOutro = $this->order(Stage::EmConferencia, ['responsible_id' => $robson->id]);
 
         $inbox = app(Inbox::class);
 
@@ -80,6 +82,7 @@ class RegistryAndInboxTest extends TestCase
         $mecanico = $inbox->for($robson)->pluck('order.id')->all();
         $this->assertContains($diagnostico->id, $mecanico);
         $this->assertContains($conferirDeOutro->id, $mecanico);
+        // Quem apontou tempo não confere (ser o responsável, sem apontar, não impede).
         $this->assertNotContains($conferirDoRobson->id, $mecanico, 'não confere o próprio serviço');
     }
 

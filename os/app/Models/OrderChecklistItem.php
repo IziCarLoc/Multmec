@@ -47,6 +47,11 @@ class OrderChecklistItem extends Model
         ];
     }
 
+    public function serviceOrder(): BelongsTo
+    {
+        return $this->belongsTo(ServiceOrder::class);
+    }
+
     public function media(): BelongsTo
     {
         return $this->belongsTo(Media::class);

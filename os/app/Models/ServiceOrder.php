@@ -66,6 +66,19 @@ class ServiceOrder extends Model
         'inspection_pdf_path',
         'inspection_pdf_sha256',
         'inspection_snapshot_sha256',
+        'torque_nm',
+        'torque_wrench',
+        'work_finished_at',
+        'work_finished_by',
+        'test_drive_km_before',
+        'test_drive_km_after',
+        'test_drive_started_at',
+        'test_drive_ended_at',
+        'test_drive_driver_id',
+        'test_drive_route',
+        'final_check_template',
+        'final_check_round',
+        'final_checker_id',
     ];
 
     protected function casts(): array
@@ -91,6 +104,13 @@ class ServiceOrder extends Model
             'has_wheel_wrench' => 'boolean',
             'no_visible_damage' => 'boolean',
             'inspection_sent_at' => 'datetime',
+            'torque_nm' => 'integer',
+            'work_finished_at' => 'datetime',
+            'test_drive_km_before' => 'integer',
+            'test_drive_km_after' => 'integer',
+            'test_drive_started_at' => 'datetime',
+            'test_drive_ended_at' => 'datetime',
+            'final_check_round' => 'integer',
         ];
     }
 
@@ -159,6 +179,21 @@ class ServiceOrder extends Model
     public function quoteRequests(): HasMany
     {
         return $this->hasMany(QuoteRequest::class)->orderBy('id');
+    }
+
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class)->orderBy('started_at');
+    }
+
+    public function testDriver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'test_drive_driver_id');
+    }
+
+    public function finalChecker(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'final_checker_id');
     }
 
     /** Orçamento (nº 1) e adendos, do mais antigo para o mais novo. */

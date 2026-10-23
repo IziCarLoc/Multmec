@@ -36,7 +36,7 @@ final class MediaStore
     public function __construct(private readonly PhotoStamper $stamper) {}
 
     /**
-     * @param  array{position?: ?string, caption?: ?string, replaces?: ?Media}  $attributes
+     * @param  array{position?: ?string, caption?: ?string, replaces?: ?Media, os_item_id?: ?int}  $attributes
      */
     public function storePhoto(ServiceOrder $order, MediaKind $kind, UploadedFile $file, ?string $clientHash, ?int $takenAtMs, User $by, array $attributes = []): Media
     {
@@ -83,6 +83,7 @@ final class MediaStore
 
             $media = Media::create([
                 'service_order_id' => $order->id,
+                'os_item_id' => $attributes['os_item_id'] ?? null,
                 'kind' => $kind,
                 'position' => $attributes['position'] ?? null,
                 'caption' => $caption,

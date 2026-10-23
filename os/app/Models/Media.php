@@ -17,6 +17,7 @@ class Media extends Model
 
     protected $fillable = [
         'service_order_id',
+        'os_item_id',
         'kind',
         'position',
         'caption',

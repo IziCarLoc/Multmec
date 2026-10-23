@@ -7,6 +7,9 @@ use App\Models\ServiceOrder;
 use App\Models\StageTransition;
 use App\Models\User;
 use App\Services\Budgets\Budgets;
+use App\Services\Execution\Execution;
+use App\Services\Execution\FinalCheck;
+use App\Services\Execution\WorkLog;
 use App\Services\Inspections\TechnicalChecklist;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -101,7 +104,7 @@ final class StageMachine
                 throw new DomainException('O seu perfil não faz este passo ("'.self::actionLabel($fresh->stage, $to).'").');
             }
 
-            $missing = $this->gate->missing($fresh, $to);
+            $missing = $this->gate->missing($fresh, $to, $by);
 
             if ($missing !== []) {
                 throw new DomainException(StageGate::sentence($missing));
@@ -225,6 +228,7 @@ final class StageMachine
             }
 
             $this->budgetEffects($fresh, $expectedFrom, $to, $by);
+            $this->executionEffects($fresh, $expectedFrom, $to, $by);
 
             return $fresh;
         });
@@ -244,6 +248,25 @@ final class StageMachine
             app(Budgets::class)->awaitAgain($order);
         } elseif (in_array($to, $beforeBudget, true) && ! in_array($from, $beforeBudget, true)) {
             app(Budgets::class)->reopen($order);
+        }
+    }
+
+    /**
+     * Execução e conferência acompanham a etapa: aprovada com peça por chegar vai sozinha para "Aguardando
+     * peças"; "Iniciar serviço" abre o apontamento de quem tocou; concluir abre uma rodada nova de conferência;
+     * liberar grava o aceite de quem conferiu.
+     */
+    private function executionEffects(ServiceOrder $order, Stage $from, Stage $to, ?User $by): void
+    {
+        if ($to === Stage::Aprovada && app(Execution::class)->partsPending($order)) {
+            $this->transition($order, Stage::Aprovada, Stage::AguardandoPecas, null, 'Automático: peça aprovada ainda não chegou.', fn () => null);
+        } elseif ($to === Stage::EmExecucao && in_array($from, [Stage::Aprovada, Stage::AguardandoPecas], true) && $by && Gate::forUser($by)->allows('oficina')) {
+            app(WorkLog::class)->start($order, $by);
+        } elseif ($to === Stage::EmConferencia && $from === Stage::EmExecucao) {
+            $order->update(['work_finished_at' => now(), 'work_finished_by' => $by?->id]);
+            app(FinalCheck::class)->newRound($order);
+        } elseif ($to === Stage::ProntaRetirada && $from === Stage::EmConferencia && $by) {
+            app(FinalCheck::class)->release($order, $by);
         }
     }
 

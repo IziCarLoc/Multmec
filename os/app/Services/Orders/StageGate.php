@@ -5,7 +5,10 @@ namespace App\Services\Orders;
 use App\Enums\Stage;
 use App\Models\Budget;
 use App\Models\ServiceOrder;
+use App\Models\User;
 use App\Services\Budgets\Budgets;
+use App\Services\Execution\Execution;
+use App\Services\Execution\FinalCheck;
 use App\Services\Inspections\EntryInspection;
 use App\Services\Inspections\TechnicalChecklist;
 use App\Services\Quotes\Quotations;
@@ -23,12 +26,14 @@ final class StageGate
         private readonly TechnicalChecklist $technical,
         private readonly Quotations $quotations,
         private readonly Budgets $budgets,
+        private readonly Execution $execution,
+        private readonly FinalCheck $finalCheck,
     ) {}
 
     /**
      * @return list<array{label: string, tab: string, field: ?string}>
      */
-    public function missing(ServiceOrder $order, Stage $to): array
+    public function missing(ServiceOrder $order, Stage $to, ?User $by = null): array
     {
         $missing = [];
         $need = function (bool $ok, string $label, string $tab, ?string $field = null) use (&$missing) {
@@ -81,6 +86,31 @@ final class StageGate
                     $to === Stage::Aprovada
                         ? $need($status === Budget::STATUS_APPROVED, 'Aceite do cliente registrado (aba Orçamento)', 'orcamento', 'resposta')
                         : $need($status === Budget::STATUS_REFUSED, 'Recusa registrada com o motivo (aba Orçamento)', 'orcamento', 'resposta');
+                }
+                break;
+
+            case Stage::AguardandoPecas:
+                if ($order->stage === Stage::Aprovada) {
+                    $need($this->execution->partsPending($order), 'Nenhuma peça aprovada esperando chegar', 'execucao', null);
+                }
+                break;
+
+            case Stage::EmExecucao:
+                // Nada entra em execução sem aceite (o CORRIGIR, que volta da conferência, não passa aqui).
+                if (in_array($order->stage, [Stage::Aprovada, Stage::AguardandoPecas], true)) {
+                    $need($this->budgets->main($order)?->status === Budget::STATUS_APPROVED, 'Aceite do orçamento', 'orcamento', 'resposta');
+                }
+                break;
+
+            case Stage::EmConferencia:
+                if ($order->stage === Stage::EmExecucao) {
+                    $missing = $this->execution->missing($order);
+                }
+                break;
+
+            case Stage::ProntaRetirada:
+                if ($order->stage === Stage::EmConferencia) {
+                    $missing = $this->finalCheck->missing($order, $by);
                 }
                 break;
 
