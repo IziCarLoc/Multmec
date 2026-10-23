@@ -150,6 +150,7 @@ new #[Title('Ajustes')] class extends Component
             <a href="{{ route('settings.users') }}" class="{{ $btnSecondary }}"><i class="fas fa-users"></i> Usuários</a>
             <a href="{{ route('settings.izi-fleet') }}" class="{{ $btnSecondary }}"><i class="fas fa-car-side"></i> Frota Izi</a>
             <a href="{{ route('settings.checklists') }}" class="{{ $btnSecondary }}" data-test="ajustes-checklists"><i class="fas fa-list-check"></i> Checklists</a>
+            <a href="{{ route('settings.import') }}" class="{{ $btnSecondary }}" data-test="ajustes-importar"><i class="fas fa-file-import"></i> Importar dos artefatos</a>
             <a href="{{ route('settings.health') }}" class="{{ $btnSecondary }}"><i class="fas fa-heart-pulse"></i> Saúde do sistema</a>
         </div>
     </div>
