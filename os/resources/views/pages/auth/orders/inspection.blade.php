@@ -16,6 +16,7 @@ use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -62,8 +63,12 @@ new class extends Component
 
     public ?int $markingDamage = null;
 
-    // Entrega ao cliente
+    // Entrega ao cliente: o PDF preparado e o resumo dos dados daquele momento ficam travados no servidor.
+    #[Locked]
     public ?string $preparedPath = null;
+
+    #[Locked]
+    public ?string $preparedSnapshot = null;
 
     public bool $askSentConfirmation = false;
 
@@ -246,6 +251,7 @@ new class extends Component
             if ($type === 'item') {
                 abort_unless($this->editableB, 403);
                 $item = OrderChecklistItem::query()->where('service_order_id', $this->order->id)->findOrFail((int) $key);
+                app(TechnicalChecklist::class)->assertCanAttachPhoto($item, $user);
                 $previous = $item->media;
                 $media = $store->storePhoto($this->order, MediaKind::NaoConformidade, $this->upload, $hash, $takenAt, $user, ['position' => 'item-'.$item->id, 'caption' => $item->label.' · '.mb_strtolower((string) $item->stateLabel()), 'replaces' => $previous]);
                 app(TechnicalChecklist::class)->attachPhoto($item, $media, $user);
@@ -322,6 +328,7 @@ new class extends Component
         }
 
         $this->preparedPath = $prepared['path'];
+        $this->preparedSnapshot = $prepared['snapshot_sha256'];
 
         return [
             'b64' => base64_encode($prepared['binary']),
@@ -339,11 +346,11 @@ new class extends Component
         if ($this->preparedPath && str_starts_with($this->preparedPath, $this->order->storageDir().'/') && Storage::disk(Media::DISK)->exists($this->preparedPath)) {
             $binary = (string) Storage::disk(Media::DISK)->get($this->preparedPath);
             preg_match('/(\d{8}-\d{6})\.pdf$/', $this->preparedPath, $m);
-            $prepared = ['path' => $this->preparedPath, 'sha256' => hash('sha256', $binary), 'binary' => $binary, 'at' => CarbonImmutable::createFromFormat('Ymd-His', $m[1] ?? now()->format('Ymd-His'))];
+            $prepared = ['path' => $this->preparedPath, 'sha256' => hash('sha256', $binary), 'binary' => $binary, 'at' => CarbonImmutable::createFromFormat('Ymd-His', $m[1] ?? now()->format('Ymd-His')), 'snapshot_sha256' => $this->preparedSnapshot];
         }
 
         if ($this->attempt(fn () => $delivery->markSent($this->order, $via, auth()->user(), $prepared))) {
-            $this->reset('preparedPath', 'askSentConfirmation');
+            $this->reset('preparedPath', 'preparedSnapshot', 'askSentConfirmation');
             $this->dispatch('toast', message: 'Envio da vistoria registrado.', type: 'success');
             $this->changed();
         }

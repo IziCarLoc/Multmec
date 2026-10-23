@@ -137,8 +137,13 @@ new class extends Component
     }
 
     /** Campo de uma resposta mudou: grava a linha (cotação, item, fornecedor). */
-    public function updatedResponses(mixed $value, string $key): void
+    public function updatedResponses(mixed $value, ?string $key = null): void
     {
+        // No Livewire 4 o hook às vezes chega com a lista inteira ($key nulo): sem a linha, não há o que gravar.
+        if ($key === null || substr_count($key, '.') < 3) {
+            return;
+        }
+
         [$requestId, $itemId, $supplierId] = array_map('intval', array_slice(explode('.', $key), 0, 3));
         $row = $this->responses[$requestId][$itemId][$supplierId] ?? null;
 

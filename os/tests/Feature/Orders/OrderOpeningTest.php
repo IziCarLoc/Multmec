@@ -8,6 +8,8 @@ use App\Models\ServiceOrder;
 use App\Models\Unit;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Inspections\InspectionDelivery;
+use App\Services\Orders\OrderEditor;
 use App\Services\Orders\OrderOpener;
 use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -42,6 +44,17 @@ class OrderOpeningTest extends TestCase
         $this->assertSame($order->customer_id, $order->vehicle->customer_id);
         $this->assertSame([null, Stage::Aberta], [$order->transitions->first()->from_stage, $order->transitions->first()->to_stage]);
         $this->assertSame('cliente', $order->approver_kind);
+    }
+
+    public function test_corrigir_o_whatsapp_do_cliente_corrige_para_quem_vai_a_vistoria(): void
+    {
+        $order = $this->open([]);
+        $this->assertSame('55991112233', $order->approver_whatsapp);
+
+        $order = app(OrderEditor::class)->details($order, ['customer_name' => 'Maria Souza Lima', 'customer_whatsapp' => '(55) 99111-9999', 'entry_date' => $order->entry_date->toDateString()], User::factory()->atendimento()->create());
+
+        $this->assertSame(['55991119999', 'Maria Souza Lima'], [$order->approver_whatsapp, $order->approver_name]);
+        $this->assertSame('55991119999', app(InspectionDelivery::class)->recipientPhone($order));
     }
 
     public function test_numero_e_obrigatorio_e_unico_na_unidade(): void

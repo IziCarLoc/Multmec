@@ -269,6 +269,33 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertSame([$a->id, 32000, PartOrigin::Original], [$part->fresh()->supplier_id, $part->fresh()->cost_cents, $part->fresh()->origin]);
     }
 
+    public function test_resposta_do_vencedor_mudou_o_item_acompanha_e_servico_sem_horas_trava_o_envio(): void
+    {
+        $order = $this->order(Stage::AguardandoCotacao);
+        $part = $this->item($order, OrderItem::KIND_PART, ['description' => 'Amortecedor dianteiro']);
+        [$a, $b] = [$this->supplier(), $this->supplier()];
+        $giovana = User::factory()->atendimento()->create();
+        $quotations = app(Quotations::class);
+        $request = $quotations->create($order, [$part->id], [$a->id, $b->id], null, null, null, $giovana);
+
+        $winner = $quotations->saveResponse($request, $a, $part, ['status' => 'disponivel', 'brand' => 'Cofap', 'cost_cents' => 10_000], $giovana);
+        $quotations->chooseWinner($winner, $giovana);
+
+        // O fornecedor corrigiu o preço: o custo do item acompanha.
+        $quotations->saveResponse($request, $a, $part, ['status' => 'disponivel', 'brand' => 'Cofap', 'cost_cents' => 18_000], $giovana);
+        $this->assertSame([$a->id, 18_000], [$part->fresh()->supplier_id, $part->fresh()->cost_cents]);
+
+        // Depois disse que não tem mais: deixa de ser o vencedor e a cotação volta a pedir o vencedor.
+        $quotations->saveResponse($request, $a, $part, ['status' => 'nao_tem'], $giovana);
+        $this->assertSame([null, null, false], [$part->fresh()->supplier_id, $part->fresh()->cost_cents, $winner->fresh()->is_winner]);
+        $this->assertContains('Vencedor da cotação: Amortecedor dianteiro', $this->labels(app(StageGate::class)->missing($order, Stage::AguardandoAprovacao)));
+
+        // Serviço lançado na cotação sem horas não vai no orçamento.
+        $service = $this->item($order, OrderItem::KIND_SERVICE, ['description' => 'Troca dos amortecedores', 'hours' => null]);
+        $this->assertContains('Horas estimadas: Troca dos amortecedores', $this->labels(app(StageGate::class)->missing($order, Stage::AguardandoAprovacao)));
+        $this->assertNotNull($service);
+    }
+
     public function test_video_sem_hash_diferente_grande_ou_que_nao_e_video_e_recusado(): void
     {
         Storage::fake('local');

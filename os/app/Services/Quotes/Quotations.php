@@ -162,6 +162,29 @@ final class Quotations
         $available = $data['status'] !== 'nao_tem';
         $cost = $available && ($data['cost_cents'] ?? null) !== null ? max(0, (int) $data['cost_cents']) : null;
 
+        return DB::transaction(function () use ($request, $supplier, $item, $data, $available, $cost, $by) {
+            $response = $this->storeResponse($request, $supplier, $item, $data, $available, $cost, $by);
+
+            // A resposta do vencedor mudou: o item acompanha (sem preço ou "não tem" deixa de ser o vencedor). Item que já
+            // foi para o cliente no orçamento não muda.
+            if ($response->is_winner && ! $item->fresh()->isFrozen()) {
+                if (! $available || $cost === null) {
+                    $response->update(['is_winner' => false]);
+                    $item->update(['supplier_id' => null, 'cost_cents' => null, 'brand' => null, 'lead_time' => null]);
+                } else {
+                    $item->update(['supplier_id' => $response->supplier_id, 'cost_cents' => $response->cost_cents, 'brand' => $response->brand, 'lead_time' => $response->lead_time, 'origin' => $response->origin ?? $item->origin]);
+                }
+
+                AuditLog::record($request->serviceOrder, 'quote.winner_changed', null, ['cotacao' => $request->code, 'item' => $item->id, 'fornecedor' => $response->supplier_id, 'custo' => $cost]);
+            }
+
+            return $response;
+        });
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function storeResponse(QuoteRequest $request, Supplier $supplier, OrderItem $item, array $data, bool $available, ?int $cost, User $by): QuoteResponse
+    {
         return QuoteResponse::query()->updateOrCreate(
             ['quote_request_id' => $request->id, 'supplier_id' => $supplier->id, 'os_item_id' => $item->id],
             [

@@ -268,6 +268,30 @@ class EntryInspectionTest extends TestCase
         $this->assertSame(Stage::EmDiagnostico, $machine->move($order->fresh(), Stage::EmVistoria, Stage::EmDiagnostico, $giovana)->stage);
     }
 
+    public function test_envio_guarda_o_resumo_do_pdf_e_so_o_atendimento_registra(): void
+    {
+        $order = $this->order(Stage::EmVistoria);
+        $giovana = User::factory()->atendimento()->create();
+        $this->completePartA($order, $giovana);
+        $this->completePartB($order);
+        $delivery = app(InspectionDelivery::class);
+        $prepared = $delivery->preparePdf($order->fresh(), $giovana);
+
+        try {
+            $delivery->markSent($order->fresh(), 'manual', User::factory()->mecanico()->create(), $prepared);
+            $this->fail('Só o atendimento registra o envio, mesmo com o PDF pronto.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('atendimento', $e->getMessage());
+        }
+
+        // Mudou o km entre gerar o PDF e confirmar: o envio registrado é o do PDF, então pede para enviar de novo.
+        app(EntryInspection::class)->update($order->fresh(), ['km_in' => 87600], $giovana);
+        $delivery->markSent($order->fresh(), 'compartilhar', $giovana, $prepared);
+
+        $this->expectExceptionMessage('de novo');
+        app(StageMachine::class)->move($order->fresh(), Stage::EmVistoria, Stage::EmDiagnostico, $giovana);
+    }
+
     public function test_assinatura_na_tela_vale_como_entrega_e_recusa_quadro_em_branco(): void
     {
         $order = $this->order(Stage::EmVistoria);
