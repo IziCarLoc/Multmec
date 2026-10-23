@@ -23,6 +23,7 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | 4 | Orçamento: preço de cada item (o gestor vê a margem), previsão e pagamento, prévia em PDF; "Enviar orçamento" congela a cópia com SHA-256; envio do PDF pelo WhatsApp, resumo e link para o cliente responder sem login; aceite de todos ou de parte dos itens (mensagem com print, presencial, assinatura, link ou alçada da Izi, acima dela só o gestor), autorização da peça não original, recusa com motivo e valor do diagnóstico; adendos depois do aceite | Pronto |
 | 5 | Execução: apontamento (Iniciar/Pausar; um por vez; o esquecido fecha às 22h marcado para conferir), peça recebida ou não usada (aprovada com peça por chegar vai sozinha para "Aguardando peças"), foto da peça velha e da nova, torque das rodas em Nm com o nº do torquímetro, lacres, test drive exigido; conferência por quem não apontou tempo (Expresso ou Completo, OK / Não se aplica / CORRIGIR, foto de cada roda com a listra, test drive com km, hora, motorista e trajeto); CORRIGIR devolve para a execução e a conferência recomeça | Pronto |
 | 6 | Entrega e termos, PDF completo da OS, resumo fiscal, Por mês | Em andamento |
+| Financeiro 2a | Painel (vencimentos que abrem a lista filtrada, em aberto, movimento do mês e "Por mês" pela data do pagamento), A receber (parcelas em centavos exatos, pagamentos parciais com data, recebimento pela matriz, baixa do vencido como prejuízo), A pagar (boletos com parcelas e "marcar pago"), prestadores externos, inadimplentes e prejuízos; o atendimento não vê lucro | Pronto (faltam o lançamento automático pela OS aprovada e a importação do artefato) |
 | 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
 
 ## Rodar no computador
@@ -37,6 +38,7 @@ php artisan key:generate
 touch database/database.sqlite
 php artisan migrate --seed
 php artisan db:seed --class=DemoSeeder   # 5 usuários, 3 fornecedores e 2 OS de exemplo (uma pronta para cotar), senha multmec123
+php artisan db:seed --class=FinanceDemoSeeder   # lançamentos de exemplo do Financeiro (depois do DemoSeeder)
 php artisan serve                        # http://127.0.0.1:8000
 ```
 
