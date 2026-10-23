@@ -25,6 +25,25 @@ return [
     // Cor da marcação de torque usada na oficina (vai no termo de garantia). Em branco até a oficina definir.
     'torque_mark_color' => null,
 
+    // Conferência de compras (Financeiro > Compras). Padrões do sistema anterior (Node); o gestor muda em
+    // Ajustes > Conferência de compras. O CNPJ da oficina é o das unidades (Ajustes > Oficina e numeração).
+    'purchases' => [
+        // OS a partir desta data entram no aviso "OS com custo de peça e nenhuma nota" (vazio = 1º dia do mês atual).
+        'audit_since' => null,
+        // Dias para dar destino (OS, estoque, uso interno) às peças de uma nota.
+        'allocation_days' => 7,
+        // Diferença aceita entre boleto e nota, em centavos (arredondamento).
+        'tolerance_cents' => 5,
+        // Avisa quando o preço unitário passa disto (%) sobre a mediana das últimas compras do mesmo item.
+        'price_alert_pct' => 15,
+        // Avisa a parcela da nota sem boleto quando faltam estes dias (ou menos) para vencer.
+        'invoice_without_slip_days' => 5,
+        // Boleto a partir deste valor (centavos) cuja nota veio por XML do atendimento pede a consulta do gestor no portal.
+        'xml_check_cents' => 200000,
+        // Prazo combinado (dias) para a empresa do grupo devolver o que a oficina pagou por ela.
+        'group_return_days' => 30,
+    ],
+
     // Textos dos termos (Ajustes > Textos). Marcados [REVISAR] até o advogado aprovar.
     'texts' => [
         'warranty' => "[REVISAR COM ADVOGADO]\nGarantia contratual de {dias} dias{km}, além da garantia legal prevista no Código de Defesa do Consumidor, contada da entrega do veículo.\nCobertura: [descrever].\nExclusões: [descrever].\nMarcação de torque: os fixadores trabalhados são marcados com tinta {cor_torque}; marca rompida indica intervenção de terceiros.\nReaperto das rodas: recomendamos voltar à oficina entre 50 e 100 km após a troca ou remoção de rodas (sem custo).\nComo acionar: [descrever].",

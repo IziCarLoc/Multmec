@@ -2,6 +2,15 @@
 
 namespace Tests\Concerns;
 
+use App\Enums\SupplierKind;
+use App\Models\BankSlip;
+use App\Models\PurchaseInvoice;
+use App\Models\Supplier;
+use App\Models\Unit;
+use App\Models\User;
+use App\Services\Purchases\BankSlips;
+use App\Services\Purchases\Invoices;
+use App\Services\Purchases\Occurrences;
 use App\Support\Purchases\AccessKey;
 use App\Support\Purchases\BoletoCode;
 
@@ -109,6 +118,71 @@ trait BuildsPurchases
     protected function barcodeOf(string $line): string
     {
         return BoletoCode::lineToBarcode($line);
+    }
+
+    // ------------------------------------------------------------------ cenários com banco (testes de Feature)
+
+    /** A oficina com o CNPJ de teste e o fornecedor principal já cadastrado (e conferido pelo gestor, como no Node). */
+    protected function purchaseScene(bool $confirmedSupplier = true): Supplier
+    {
+        Unit::query()->updateOrCreate(['code' => 'LIB'], ['name' => 'Liberdade', 'trade_name' => 'OFICINA TESTE', 'cnpj' => self::WORKSHOP_CNPJ, 'is_default' => true, 'active' => true]);
+
+        return Supplier::query()->firstOrCreate(['document' => self::SUPPLIER_CNPJ], [
+            'name' => self::SUPPLIER_NAME, 'kind' => SupplierKind::Pecas, 'active' => true,
+            'confirmed_at' => $confirmedSupplier ? now()->subMonth() : null,
+        ]);
+    }
+
+    protected function gestor(): User
+    {
+        return User::query()->where('email', 'gestor.compras@teste.test')->first() ?? User::factory()->gestor()->create(['email' => 'gestor.compras@teste.test']);
+    }
+
+    protected function desk(): User
+    {
+        return User::query()->where('email', 'atendimento.compras@teste.test')->first() ?? User::factory()->atendimento()->create(['email' => 'atendimento.compras@teste.test']);
+    }
+
+    /** Importa uma NF-e (pelo serviço, como a tela) e devolve a nota. */
+    protected function importInvoice(array $o = [], ?User $by = null): PurchaseInvoice
+    {
+        $result = app(Invoices::class)->importXml($this->nfeXml($o), $by ?? $this->gestor());
+
+        return PurchaseInvoice::findOrFail($result['invoice_id']);
+    }
+
+    /** Nota do fornecedor de teste com um item (2 unidades) e as parcelas (padrão: uma, vencendo em 20/10/2026). */
+    protected function invoiceOf(int $number, float $amount, ?array $installments = null, array $extra = [], ?User $by = null): PurchaseInvoice
+    {
+        return $this->importInvoice([
+            'number' => $number, 'items' => [['code' => 'C'.$number, 'name' => 'PECA '.$number, 'qty' => 2, 'total' => $amount]],
+            'installments' => $installments ?? [['due' => '2026-10-20', 'amount' => $amount]], ...$extra,
+        ], $by);
+    }
+
+    /**
+     * Cadastra um boleto do fornecedor de teste (com quem recebe e quem paga informados, como no Node).
+     *
+     * @return array{slip: BankSlip, reading: ?array, auto: array, adopted: bool, occurrences: list<array>}
+     */
+    protected function registerSlip(float $amount, string $due, array $extra = [], ?User $by = null): array
+    {
+        return app(BankSlips::class)->create([
+            'line' => $this->slipLine($amount, $due), 'payee_cnpj' => self::SUPPLIER_CNPJ, 'payer_cnpj' => self::WORKSHOP_CNPJ,
+            'supplier_name' => self::SUPPLIER_NAME, ...$extra,
+        ], $by ?? $this->gestor());
+    }
+
+    /** @return list<string> tipos das ocorrências abertas (não aceitas) do boleto */
+    protected function openTypes(BankSlip|int $slip): array
+    {
+        return array_values(array_map(fn ($o) => $o['type'], array_filter(app(Occurrences::class)->forSlip($slip), fn ($o) => ! $o['accepted'])));
+    }
+
+    /** @param  list<array<string, mixed>>  $occurrences */
+    protected function pairs(array $occurrences): array
+    {
+        return array_values(array_map(fn ($o) => [$o['type'], $o['severity']], $occurrences));
     }
 
     /**
