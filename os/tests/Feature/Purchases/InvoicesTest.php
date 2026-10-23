@@ -54,7 +54,7 @@ class InvoicesTest extends TestCase
         $invoice = PurchaseInvoice::findOrFail($first['invoice_id']);
         $this->assertSame(33000, $invoice->total_cents);
         $this->assertSame(self::SUPPLIER_CNPJ, $invoice->supplier->document);
-        $this->assertSame(33000, $invoice->items()->sum('cost_cents'));            // o frete entra no custo das peças
+        $this->assertSame(33000, (int) $invoice->items()->sum('cost_cents'));      // o frete entra no custo das peças (o MariaDB devolve a soma como texto)
         $this->assertSame('gestor', $invoice->created_role);
         $this->assertSame($xml, $invoice->originalXml());                            // o XML original fica guardado, igual ao que entrou
 
