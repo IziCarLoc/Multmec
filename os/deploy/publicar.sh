@@ -9,15 +9,21 @@ DOCROOT="$BASE/public_html/multmec"
 
 cd "$APP"
 
-# Primeira publicação: configuração de produção com APP_KEY nova (depois disso o .env não é tocado).
+# Pastas de trabalho antes de qualquer comando do Laravel: o envio (rsync) não leva storage/ nem
+# bootstrap/cache/, para nunca apagar fotos e PDFs; na primeira vez elas ainda não existem.
+mkdir -p storage/logs storage/framework/cache/data storage/framework/sessions storage/framework/views storage/app/private bootstrap/cache
+
+# Primeira publicação: configuração de produção (depois disso o .env não é tocado).
 if [ ! -f .env ]; then
     cp deploy/.env.producao.example .env
     chmod 600 .env
-    php artisan key:generate --force --no-interaction
     echo ".env de produção criado."
 fi
 
-mkdir -p storage/logs storage/framework/cache/data storage/framework/sessions storage/framework/views storage/app/private bootstrap/cache
+# APP_KEY nova só se estiver vazia (também cobre uma primeira publicação que parou no meio).
+if ! grep -qE '^APP_KEY=.+' .env; then
+    php artisan key:generate --force --no-interaction
+fi
 
 # Página padrão da Hostinger sai da pasta pública (fica guardada fora dela).
 if [ -f "$DOCROOT/default.php" ]; then
