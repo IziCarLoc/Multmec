@@ -6,6 +6,7 @@ use App\Http\Controllers\InspectionPdfController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\MonthlyReportController;
 use App\Http\Controllers\OrderPdfController;
+use App\Http\Controllers\PurchaseInvoiceXmlController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -54,6 +55,16 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
         Route::livewire('/financeiro/inadimplentes', 'pages::auth.finance.delinquents')->name('finance.delinquents');
         Route::livewire('/financeiro/prejuizos', 'pages::auth.finance.losses')->name('finance.losses');
         Route::livewire('/financeiro/prestadores', 'pages::auth.finance.providers')->name('finance.providers');
+        Route::livewire('/financeiro/contas-fixas', 'pages::auth.finance.recurring')->name('finance.recurring');
+        Route::livewire('/financeiro/credito', 'pages::auth.finance.credit')->name('finance.credit');
+        Route::livewire('/financeiro/relatorios', 'pages::auth.finance.reports')->name('finance.reports');
+
+        // Conferência de compras (nota fiscal × boleto × peça × OS): o atendimento lança; pagar e aceitar é do gestor.
+        Route::livewire('/financeiro/compras', 'pages::auth.finance.purchases.index')->name('finance.purchases');
+        Route::livewire('/financeiro/compras/notas', 'pages::auth.finance.purchases.invoices')->name('finance.purchases.invoices');
+        Route::livewire('/financeiro/compras/boletos', 'pages::auth.finance.purchases.slips')->name('finance.purchases.slips');
+        Route::livewire('/financeiro/compras/fornecedores', 'pages::auth.finance.purchases.suppliers')->name('finance.purchases.suppliers');
+        Route::get('/financeiro/compras/notas/{invoice}/xml', [PurchaseInvoiceXmlController::class, 'show'])->whereNumber('invoice')->name('finance.purchases.invoice-xml');
     });
 
     Route::middleware('can:gestor')->group(function () {
@@ -63,6 +74,13 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
         Route::livewire('/ajustes/frota-izi', 'pages::auth.settings.izi-fleet')->name('settings.izi-fleet');
         Route::livewire('/ajustes/checklists', 'pages::auth.settings.checklists')->name('settings.checklists');
         Route::livewire('/ajustes/importar', 'pages::auth.settings.import')->name('settings.import');
+        // Financeiro só do gestor: a Meta do mês (lucro, retirada) e a importação da planilha.
+        Route::livewire('/financeiro/meta', 'pages::auth.finance.goal')->name('finance.goal');
+        Route::livewire('/financeiro/importar-planilha', 'pages::auth.finance.spreadsheet-import')->name('finance.spreadsheet-import');
+        Route::livewire('/ajustes/compras', 'pages::auth.settings.purchases')->name('settings.purchases');
+        // Conferência de compras: empresas do grupo e acerto entre elas, e o DDA do banco (só o gestor).
+        Route::livewire('/financeiro/compras/grupo', 'pages::auth.finance.purchases.group')->name('finance.purchases.group');
+        Route::livewire('/financeiro/compras/dda', 'pages::auth.finance.purchases.dda')->name('finance.purchases.dda');
         // Teste da hospedagem: PDF com 30 fotos geradas na hora (memória e tempo do dompdf no servidor).
         Route::get('/ajustes/saude/pdf-de-teste', [HealthCheckController::class, 'pdf'])->name('settings.health.pdf');
     });

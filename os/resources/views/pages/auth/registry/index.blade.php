@@ -1,8 +1,11 @@
 <?php
 
+use App\Enums\CreditKind;
+use App\Livewire\Concerns\RunsDomainActions;
 use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Vehicle;
+use App\Services\Finance\Credit;
 use App\Services\Registry\IziFleet;
 use App\Support\Document;
 use App\Support\Phone;
@@ -13,6 +16,8 @@ use Livewire\Component;
 
 new #[Title('Clientes e veículos')] class extends Component
 {
+    use RunsDomainActions;
+
     #[Url(as: 'aba', except: 'veiculos')]
     public string $tab = 'veiculos';
 
@@ -76,6 +81,10 @@ new #[Title('Clientes e veículos')] class extends Component
             'email' => (string) $customer->email,
             'address' => (string) $customer->address,
             'notes' => (string) $customer->notes,
+            // Crédito a prazo: só o gestor muda (Finance\Credit::updateTerms).
+            'credit_kind' => $customer->credit_kind->value,
+            'credit_days' => (string) $customer->credit_days,
+            'credit_limit' => $customer->credit_limit_cents > 0 ? number_format($customer->credit_limit_cents / 100, 2, ',', '.') : '',
         ];
     }
 
@@ -112,11 +121,17 @@ new #[Title('Clientes e veículos')] class extends Component
             ], ['form.name.required' => 'Informe o nome.', 'form.email.email' => 'Esse e-mail não parece certo.']);
 
             $customer = Customer::findOrFail($this->editId);
+            $terms = ['kind' => $this->form['credit_kind'] ?? $customer->credit_kind->value, 'days' => $this->form['credit_days'] ?? $customer->credit_days, 'limit' => (string) ($this->form['credit_limit'] ?? '')];
+
+            if (! $this->attempt(fn () => app(Credit::class)->updateTerms($customer, $terms, auth()->user()), 'form.credit_limit')) {
+                return;
+            }
+
             $customer->update([
                 'name' => trim($this->form['name']),
                 'whatsapp' => Phone::digits($this->form['whatsapp'] ?? '') ?: null,
                 'phone2' => Phone::digits($this->form['phone2'] ?? '') ?: null,
-                'document' => Document::digits($this->form['document'] ?? '') ?: null,
+                'document' => Document::clean($this->form['document'] ?? '') ?: null,
                 'email' => trim((string) ($this->form['email'] ?? '')) ?: null,
                 'address' => mb_substr(trim((string) ($this->form['address'] ?? '')), 0, 255) ?: null,
                 'notes' => trim((string) ($this->form['notes'] ?? '')) ?: null,
@@ -212,6 +227,27 @@ new #[Title('Clientes e veículos')] class extends Component
                 <div><label class="{{ $labelClass }}">E-mail</label><input type="email" wire:model="form.email" class="{{ $inputClass }}">@error('form.email') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror</div>
                 <div class="sm:col-span-2"><label class="{{ $labelClass }}">Endereço</label><input type="text" wire:model="form.address" maxlength="255" placeholder="Rua, número, bairro…" class="{{ $inputClass }}" data-test="cliente-endereco"></div>
                 <div class="sm:col-span-2"><label class="{{ $labelClass }}">Observações</label><textarea wire:model="form.notes" rows="2" class="{{ $inputClass }}"></textarea></div>
+                <fieldset class="sm:col-span-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-3" data-test="cliente-credito">
+                    <legend class="px-1 text-sm font-semibold">Crédito a prazo</legend>
+                    @can('gestor')
+                        <div class="grid gap-3 sm:grid-cols-3">
+                            <div class="sm:col-span-3"><label class="{{ $labelClass }}" for="c-tipo">Tipo</label>
+                                <select id="c-tipo" wire:model="form.credit_kind" class="{{ $inputClass }}" data-test="cliente-tipo">
+                                    @foreach (CreditKind::options() as $value => $label)
+                                        <option value="{{ $value }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div><label class="{{ $labelClass }}" for="c-prazo">Prazo (dias)</label><input id="c-prazo" type="number" min="0" max="180" inputmode="numeric" wire:model="form.credit_days" class="{{ $inputClass }}" data-test="cliente-prazo"></div>
+                            <div class="sm:col-span-2"><label class="{{ $labelClass }}" for="c-limite">Limite de crédito (R$)</label><input id="c-limite" type="text" inputmode="decimal" wire:model="form.credit_limit" placeholder="sem crédito" class="{{ $inputClass }}" data-test="cliente-limite"></div>
+                        </div>
+                        <p class="text-xs text-gray-500">Prazo 0 = paga na retirada. Limite = o máximo em aberto; vazio = sem crédito (a prazo só com a liberação do gestor).</p>
+                    @else
+                        <p class="text-sm" data-test="cliente-credito-leitura">{{ CreditKind::tryFrom((string) ($form['credit_kind'] ?? ''))?->label() ?? '—' }} · prazo {{ (int) ($form['credit_days'] ?? 0) > 0 ? $form['credit_days'].' dias' : 'na retirada' }} · limite {{ ($form['credit_limit'] ?? '') !== '' ? 'R$ '.$form['credit_limit'] : 'sem crédito' }}</p>
+                        <p class="text-xs text-gray-500">Tipo, prazo e limite são definidos pelo gestor.</p>
+                    @endcan
+                    @error('form.credit_limit') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                </fieldset>
             </div>
             <div class="flex justify-end gap-2">
                 <button type="button" wire:click="close" class="{{ $btnSecondary }}">Cancelar</button>

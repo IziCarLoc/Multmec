@@ -42,6 +42,8 @@ class FinanceDemoSeeder extends Seeder
         $receivables = app(Receivables::class);
 
         $maria = $customers->findOrCreate('Maria Exemplo', '55999990021');
+        // Maria compra a prazo (parcelas a vencer): crédito de exemplo, senão a trava do crédito recusa.
+        $maria->update(['credit_kind' => 'frota', 'credit_days' => 30, 'credit_limit_cents' => 500000]);
         $joao = $customers->findOrCreate('João Exemplo', '55999990022');
         $carla = $customers->findOrCreate('Carla Exemplo', '55999990023');
 

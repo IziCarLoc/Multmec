@@ -28,6 +28,9 @@ class FinanceAccessTest extends TestCase
             'inadimplentes' => ['finance.delinquents', 'pages::auth.finance.delinquents'],
             'prejuízos' => ['finance.losses', 'pages::auth.finance.losses'],
             'prestadores' => ['finance.providers', 'pages::auth.finance.providers'],
+            'contas fixas' => ['finance.recurring', 'pages::auth.finance.recurring'],
+            'crédito' => ['finance.credit', 'pages::auth.finance.credit'],
+            'relatórios' => ['finance.reports', 'pages::auth.finance.reports'],
         ];
     }
 

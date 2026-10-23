@@ -5,6 +5,7 @@ namespace Tests\Feature\Orders;
 use App\Enums\PartOrigin;
 use App\Enums\Stage;
 use App\Enums\SupplierKind;
+use App\Models\AuditLog;
 use App\Models\Budget;
 use App\Models\Consent;
 use App\Models\OrderItem;
@@ -150,12 +151,65 @@ class DeliveryTest extends TestCase
     {
         $order = $this->prepareExit($this->readyOrder());
         $dates = [today()->toDateString(), today()->addMonth()->toDateString(), today()->addMonths(2)->toDateString()];
+        // Parcelado é a prazo: o cliente precisa de crédito (a trava do crédito na entrega está no CreditTest).
+        $order->customer->update(['credit_kind' => 'frota', 'credit_limit_cents' => 100000]);
 
         $this->delivery()->deliver($order, $this->deliverData(['due_dates' => $dates, 'received_now' => false, 'who' => 'autorizado', 'authorization' => 'Pode entregar para o meu irmão (WhatsApp do cliente)']), $this->giovana, null, null);
 
         $this->assertSame([15000, 15000, 15000], Receivable::query()->orderBy('due_date')->pluck('total_cents')->all());
         $this->assertSame(0, (int) Receivable::query()->sum('paid_cents'));
         $this->assertSame('autorizado por escrito', Consent::query()->where('purpose', Consent::PURPOSE_PICKUP)->value('signer_relation'));
+    }
+
+    public function test_entrega_a_prazo_respeita_a_trava_do_credito(): void
+    {
+        $order = $this->prepareExit($this->readyOrder());
+        $later = ['due_dates' => [today()->addDays(15)->toDateString()], 'received_now' => false];
+
+        // Cliente sem crédito: a prazo trava antes de assinar (nada é gravado).
+        try {
+            $this->delivery()->deliver($order, $this->deliverData($later), $this->giovana, null, null);
+            $this->fail('Cliente sem crédito não leva a prazo.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('não tem crédito a prazo', $e->getMessage());
+        }
+
+        try {
+            $this->delivery()->deliver($order, $this->deliverData($later + ['credit_release' => 'Cliente conhecido']), $this->giovana, null, null);
+            $this->fail('Só o gestor libera.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('Só o gestor', $e->getMessage());
+        }
+
+        $this->assertSame([Stage::ProntaRetirada, 0, 0], [$order->fresh()->stage, Receivable::query()->count(), Consent::query()->where('purpose', Consent::PURPOSE_PICKUP)->count()]);
+
+        // O gestor libera com motivo (fica na trilha) e a entrega segue.
+        $gestor = User::factory()->gestor()->create();
+        $this->delivery()->deliver($order, $this->deliverData($later + ['credit_release' => 'Combinou pagar na quinzena']), $gestor, null, null);
+
+        $this->assertSame(Stage::Entregue, $order->fresh()->stage);
+        $this->assertSame(today()->addDays(15)->toDateString(), Receivable::query()->value('due_date')->toDateString());
+        $this->assertStringContainsString('Combinou pagar na quinzena', (string) AuditLog::query()->where('action', 'credit.released')->value('reason'));
+    }
+
+    public function test_tela_da_entrega_avisa_a_trava_e_usa_o_prazo_do_cliente(): void
+    {
+        $order = $this->prepareExit($this->readyOrder());
+        $this->actingAs($this->giovana);
+
+        Livewire::test('pages::auth.orders.delivery', ['order' => $order])
+            ->assertDontSee('data-test="trava-credito"', false)
+            ->set('receivedNow', false)
+            ->set('dueDates', [today()->addDays(10)->toDateString()])
+            ->assertSee('data-test="trava-credito"', false)
+            ->assertSee('peça ao gestor');
+
+        $order->customer->update(['credit_kind' => 'frota', 'credit_days' => 7, 'credit_limit_cents' => 500000]);
+
+        Livewire::test('pages::auth.orders.delivery', ['order' => $order->fresh()])
+            ->assertSet('dueDates', [today()->addDays(7)->toDateString()])
+            ->assertSet('receivedNow', false)
+            ->assertDontSee('data-test="trava-credito"', false);
     }
 
     public function test_recusada_devolve_o_carro_e_cobra_so_o_diagnostico(): void

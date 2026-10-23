@@ -23,7 +23,17 @@ trait BuildsFinance
             ?? User::factory()->gestor()->create(['email' => 'financeiro@teste.test']);
     }
 
+    /**
+     * Cliente que compra a prazo (frota, 30 dias, limite de R$ 100 mil): os lançamentos com vencimento futuro dos
+     * testes passam pela trava do crédito. Cliente sem crédito: `walkInCustomer()`.
+     */
     protected function financeCustomer(string $name = 'Maria Cliente', string $whatsapp = '55991112222'): Customer
+    {
+        return Customer::create(['name' => $name, 'whatsapp' => $whatsapp, 'credit_kind' => 'frota', 'credit_days' => 30, 'credit_limit_cents' => 10_000_000]);
+    }
+
+    /** Cliente avulso, sem crédito (paga na retirada). */
+    protected function walkInCustomer(string $name = 'Cliente Avulso', string $whatsapp = '55991113333'): Customer
     {
         return Customer::create(['name' => $name, 'whatsapp' => $whatsapp]);
     }

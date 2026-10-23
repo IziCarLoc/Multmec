@@ -6,6 +6,7 @@ use App\Enums\SupplierKind;
 use App\Models\AuditLog;
 use App\Models\Payable;
 use App\Models\User;
+use App\Services\Purchases\PaymentLock;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -95,6 +96,9 @@ final class Payables
             [$status, $paidOn] = $this->payment($data);
             $attributes += ['status' => $status, 'paid_on' => $paidOn];
 
+            // Boleto que passou pela conferência de compras: a trava de pagamento (App\Services\Purchases\PaymentLock).
+            app(PaymentLock::class)->beforeUpdate($payable, $attributes, $by);
+
             if ($paidOn !== null && (! $payable->isPaid() || $payable->paid_on?->toDateString() !== $paidOn)) {
                 $attributes['paid_by'] = $by->id;
             } elseif ($paidOn === null) {
@@ -105,6 +109,7 @@ final class Payables
             $changes = array_keys($payable->getDirty());
             $payable->save();
             AuditLog::record($payable, 'payable.updated', null, $changes);
+            app(PaymentLock::class)->afterUpdate($payable, $by);
 
             return $payable->fresh();
         });
@@ -117,14 +122,17 @@ final class Payables
             throw new DomainException('Este boleto já está pago.');
         }
 
+        app(PaymentLock::class)->beforeSettle($payable, $by);
         $payable->update(['status' => Payable::STATUS_PAID, 'paid_on' => FinanceInput::date($paidOn, 'Informe a data do pagamento.'), 'paid_by' => $by->id]);
         AuditLog::record($payable, 'payable.paid', null, ['paid_on' => $paidOn]);
+        app(PaymentLock::class)->afterSettle($payable, $by);
 
         return $payable->fresh();
     }
 
     public function delete(Payable $payable, User $by): void
     {
+        app(PaymentLock::class)->beforeDelete($payable);
         AuditLog::record($payable, 'payable.deleted', null, ['supplier_id' => $payable->supplier_id, 'amount_cents' => $payable->amount_cents, 'due_date' => $payable->due_date->toDateString()]);
         $payable->delete();
     }

@@ -19,12 +19,15 @@ use Carbon\CarbonImmutable;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
  * "A receber": lançar (com ou sem parcelas), editar uma parcela, registrar e remover pagamentos e dar baixa
  * como prejuízo. A situação de cada lançamento sai dos pagamentos (`paid_cents`/`received_on` são o resumo
  * deles, refeito aqui a cada mudança).
+ * Lançar a prazo (parcelado ou vencendo depois de hoje) passa pela trava do crédito (Credit::authorize): cliente
+ * travado, sem crédito ou que passaria do limite só com a liberação do gestor (`credit_release` = motivo).
  */
 final class Receivables
 {
@@ -54,8 +57,15 @@ final class Receivables
 
         $dueDates = array_map(fn ($d) => FinanceInput::date($d, 'Data de vencimento inválida.'), $dueDates);
         $receivedOn = $count === 1 && filled($data['received_on'] ?? null) ? FinanceInput::date((string) $data['received_on'], 'Data do recebimento inválida.') : null;
+        $release = app(Credit::class)->authorize(
+            Customer::find($attributes['customer_id']),
+            $attributes['total_cents'],
+            ! $attributes['received_by_matrix'] && Credit::isOnCredit($dueDates, $receivedOn !== null),
+            $by,
+            isset($data['credit_release']) ? (string) $data['credit_release'] : null,
+        );
 
-        return DB::transaction(function () use ($attributes, $dueDates, $count, $receivedOn, $by) {
+        return DB::transaction(function () use ($attributes, $dueDates, $count, $receivedOn, $by, $release) {
             $group = $count > 1 ? (string) Str::uuid() : null;
             $split = fn (string $field) => Installments::split($attributes[$field], $count);
             [$totals, $parts, $labor, $freight] = [$split('total_cents'), $split('parts_cost_cents'), $split('labor_cents'), $split('freight_cents')];
@@ -68,6 +78,9 @@ final class Receivables
                     'parts_cost_cents' => $parts[$i],
                     'labor_cents' => $labor[$i],
                     'freight_cents' => $freight[$i],
+                    // Parcelas sem a data do serviço ficam todas no mês da primeira: o faturamento é por competência
+                    // (Revenue) e a OS não pode virar uma OS nova em cada mês de vencimento.
+                    'service_date' => $attributes['service_date'] ?? ($group ? min($dueDates) : null),
                     'due_date' => $dueDate,
                     'installment_group' => $group,
                     'installment_number' => $group ? $i + 1 : null,
@@ -83,6 +96,10 @@ final class Receivables
                 $this->storePayment($created->first(), $receivedOn, $created->first()->total_cents, $by);
             }
 
+            if ($release !== null) {
+                AuditLog::record($created->first()->customer, 'credit.released', $release, ['lancamentos' => $created->pluck('id')->all(), 'total_cents' => $attributes['total_cents']]);
+            }
+
             return $created->map->fresh();
         });
     }
@@ -95,8 +112,9 @@ final class Receivables
      */
     public function update(Receivable $receivable, array $data, User $by): Receivable
     {
-        return DB::transaction(function () use ($receivable, $data) {
+        return DB::transaction(function () use ($receivable, $data, $by) {
             $receivable = $this->lock($receivable);
+            $this->assertOpeningBalanceByManager($receivable, $by);
 
             if ($receivable->isWrittenOff()) {
                 throw new DomainException('Lançamento baixado como prejuízo não muda.');
@@ -109,11 +127,25 @@ final class Receivables
                 throw new DomainException('O valor total não pode ficar abaixo do que já foi recebido ('.Money::brl($receivable->paid_cents).').');
             }
 
+            // Adiar o vencimento, aumentar o valor ou trocar o cliente também é vender a prazo.
+            [$onCredit, $newCents] = Credit::onCreditEdit($receivable, (int) $attributes['customer_id'], $attributes['due_date'], $attributes['total_cents'], (bool) $attributes['received_by_matrix']);
+            $release = app(Credit::class)->authorize(
+                Customer::find($attributes['customer_id']),
+                $newCents,
+                $onCredit,
+                $by,
+                isset($data['credit_release']) ? (string) $data['credit_release'] : null,
+            );
+
             $receivable->fill($attributes);
             $changes = $receivable->getDirty();
             $receivable->save();
             $this->refreshSummary($receivable);
             AuditLog::record($receivable, 'receivable.updated', null, array_keys($changes));
+
+            if ($release !== null) {
+                AuditLog::record($receivable->customer, 'credit.released', $release, ['lancamentos' => [$receivable->id], 'total_cents' => $receivable->total_cents]);
+            }
 
             return $receivable->fresh();
         });
@@ -178,6 +210,7 @@ final class Receivables
     {
         return DB::transaction(function () use ($receivable, $by) {
             $receivable = $this->lock($receivable);
+            $this->assertOpeningBalanceByManager($receivable, $by);
             $today = CarbonImmutable::today();
 
             if ($receivable->isWrittenOff()) {
@@ -218,8 +251,9 @@ final class Receivables
 
     public function delete(Receivable $receivable, User $by): void
     {
-        DB::transaction(function () use ($receivable) {
+        DB::transaction(function () use ($receivable, $by) {
             $receivable = $this->lock($receivable);
+            $this->assertOpeningBalanceByManager($receivable, $by);
 
             if ($receivable->isWrittenOff()) {
                 throw new DomainException('Lançamento baixado como prejuízo fica no histórico: não se exclui.');
@@ -312,8 +346,11 @@ final class Receivables
         return $payment;
     }
 
-    /** Refaz o resumo dos pagamentos: quanto já entrou e, quando completou, a data do último pagamento. */
-    private function refreshSummary(Receivable $receivable): void
+    /**
+     * Refaz o resumo dos pagamentos: quanto já entrou e, quando completou, a data do último pagamento. Público para
+     * quem muda o total por outro caminho (o saldo anterior, em Credit).
+     */
+    public function refreshSummary(Receivable $receivable): void
     {
         $paid = (int) ReceivablePayment::query()->where('receivable_id', $receivable->id)->sum('amount_cents');
         $last = ReceivablePayment::query()->where('receivable_id', $receivable->id)->max('paid_on');
@@ -322,6 +359,14 @@ final class Receivables
             'paid_cents' => $paid,
             'received_on' => $paid >= $receivable->total_cents && $last ? substr((string) $last, 0, 10) : null,
         ])->save();
+    }
+
+    /** O saldo anterior (dívida de antes do sistema) só o gestor muda, exclui ou baixa como prejuízo. */
+    private function assertOpeningBalanceByManager(Receivable $receivable, User $by): void
+    {
+        if ($receivable->opening_balance && ! Gate::forUser($by)->allows('gestor')) {
+            throw new DomainException('O saldo anterior só o gestor muda (Financeiro › Crédito).');
+        }
     }
 
     private function lock(Receivable $receivable): Receivable

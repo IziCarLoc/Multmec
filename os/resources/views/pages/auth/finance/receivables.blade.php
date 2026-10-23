@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\Receivable;
 use App\Models\ReceivablePayment;
 use App\Models\Vehicle;
+use App\Services\Finance\Credit;
 use App\Services\Finance\FinanceSummary;
 use App\Services\Finance\Installments;
 use App\Services\Finance\Month;
@@ -75,6 +76,9 @@ new #[Title('A receber')] class extends Component
 
     /** Confirmação dentro da janela: 'baixa' (prejuízo) ou 'excluir'. */
     public string $confirm = '';
+
+    /** Gestor: motivo para liberar a prazo cliente travado, sem crédito ou acima do limite. */
+    public string $creditRelease = '';
 
     public function mount(): void
     {
@@ -246,6 +250,32 @@ new #[Title('A receber')] class extends Component
         ];
     }
 
+    /**
+     * A trava do crédito para o lançamento como está no formulário (nulo = pode). A regra que vale é a do serviço
+     * (Receivables::create/update); aqui é só o aviso, com o campo de liberação para o gestor.
+     */
+    #[Computed]
+    public function creditWarning(): ?string
+    {
+        if (! $this->editing || ($this->form['received_by_matrix'] ?? false)) {
+            return null;
+        }
+
+        $total = max(0, Money::parseBr((string) ($this->form['total'] ?? '')) ?? 0);
+        $customer = $this->newCustomer ? new Customer(['name' => trim((string) ($this->form['customer_name'] ?? '')) ?: 'O cliente novo']) : $this->selectedCustomer;
+        $current = $this->current;
+
+        if ($current) {
+            [$onCredit, $newCents] = Credit::onCreditEdit($current, $this->newCustomer ? null : $this->selectedCustomer?->id, (string) ($this->form['due_date'] ?? ''), $total, false);
+
+            return app(Credit::class)->warning($customer, $newCents, $onCredit);
+        }
+
+        $dates = $this->installments ? $this->dueDates : [(string) ($this->form['due_date'] ?? '')];
+
+        return app(Credit::class)->warning($customer, $total, Credit::isOnCredit($dates, ! $this->installments && (bool) ($this->form['received_now'] ?? false)));
+    }
+
     public function create(): void
     {
         $this->resetForm();
@@ -369,6 +399,7 @@ new #[Title('A receber')] class extends Component
             'total_cents' => (string) ($this->form['total'] ?? ''),
             'payment_method' => $this->form['payment_method'] ?? null,
             'notes' => $this->form['notes'] ?? '',
+            'credit_release' => $this->creditRelease,
         ];
         $user = auth()->user();
 
@@ -469,6 +500,7 @@ new #[Title('A receber')] class extends Component
         $this->paymentDate = now()->toDateString();
         $this->paymentAmount = '';
         $this->confirm = '';
+        $this->creditRelease = '';
         unset($this->current);
     }
 };
@@ -543,6 +575,7 @@ new #[Title('A receber')] class extends Component
                                 <span class="truncate">{{ $receivable->customer?->name ?? '(sem cliente)' }}</span>
                                 @if ($receivable->installmentLabel()) <span class="{{ $pill }} bg-gray-100 dark:bg-gray-700">{{ $receivable->installmentLabel() }}</span> @endif
                                 @if ($receivable->received_by_matrix) <span class="{{ $pill }} bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">matriz</span> @endif
+                                @if ($receivable->opening_balance) <span class="{{ $pill }} bg-gray-100 dark:bg-gray-700">saldo anterior</span> @endif
                                 @if ($st === ReceivableStatus::Prejuizo)
                                     <span class="{{ $pill }} bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300">baixado como prejuízo {{ $receivable->written_off_at->format('d/m/Y') }}</span>
                                 @elseif ($st === ReceivableStatus::Recebido)
@@ -566,7 +599,7 @@ new #[Title('A receber')] class extends Component
                                     $receivable->customer_brought_part ? 'peça do cliente' : null,
                                     $receivable->received_by_matrix ? 'não entra no Painel' : null,
                                     $st === ReceivableStatus::Parcial ? 'total '.$money($receivable->total_cents) : null,
-                                    $showProfit ? 'lucro '.$money($profit->grossFor($receivable)) : null,
+                                    $showProfit && ! $receivable->opening_balance ? 'lucro '.$money($profit->grossFor($receivable)) : null,
                                     $receivable->notes,
                                 ])->filter()->implode(' · ') }}
                             </p>
@@ -713,7 +746,7 @@ new #[Title('A receber')] class extends Component
                 @unless ($installments)
                     <div>
                         <label class="{{ $labelClass }}" for="r-venc">Vencimento</label>
-                        <input id="r-venc" type="date" wire:model="form.due_date" class="{{ $inputClass }}" data-test="receber-vencimento">
+                        <input id="r-venc" type="date" wire:model.live="form.due_date" class="{{ $inputClass }}" data-test="receber-vencimento">
                     </div>
                 @endunless
 
@@ -734,7 +767,7 @@ new #[Title('A receber')] class extends Component
                                 <div class="grid grid-cols-2 sm:grid-cols-[6rem_1fr_7rem] items-center gap-x-2 gap-y-1" wire:key="due-{{ $i }}">
                                     <span class="text-sm text-gray-500">Parcela {{ $i + 1 }}</span>
                                     <span class="text-right text-sm font-semibold sm:order-last">{{ isset($this->installmentValues[$i]) ? $money($this->installmentValues[$i]) : '—' }}</span>
-                                    <input type="date" wire:model="dueDates.{{ $i }}" class="{{ $inputClass }} col-span-2 sm:col-span-1 min-w-0" data-test="vencimento-parcela-{{ $i + 1 }}">
+                                    <input type="date" wire:model.live="dueDates.{{ $i }}" class="{{ $inputClass }} col-span-2 sm:col-span-1 min-w-0" data-test="vencimento-parcela-{{ $i + 1 }}">
                                 </div>
                             @endfor
                         </div>
@@ -750,6 +783,18 @@ new #[Title('A receber')] class extends Component
                         @endif
                     @endif
                 @endunless
+
+                @if ($this->creditWarning)
+                    <div class="sm:col-span-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-3 text-sm space-y-2" data-test="trava-credito">
+                        <p class="font-semibold text-red-800 dark:text-red-200"><i class="fas fa-lock"></i> {{ $this->creditWarning }}</p>
+                        @can('gestor')
+                            <label class="{{ $labelClass }}" for="r-liberar">Motivo para liberar a prazo (fica na trilha de auditoria)</label>
+                            <input id="r-liberar" type="text" wire:model="creditRelease" maxlength="180" placeholder="Ex.: combinou pagar na sexta" class="{{ $inputClass }}" data-test="motivo-liberacao">
+                        @else
+                            <p class="text-gray-700 dark:text-gray-200">Lance à vista (vencimento hoje) ou peça ao gestor para liberar em Financeiro › Crédito.</p>
+                        @endcan
+                    </div>
+                @endif
 
                 <div class="sm:col-span-2">
                     <label class="{{ $labelClass }}" for="r-obs">Observações</label>

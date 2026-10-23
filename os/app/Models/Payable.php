@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Casts\DateOnly;
+use App\Enums\ExpenseCategory;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Conta a pagar (boleto de fornecedor). Regras em App\Services\Finance\Payables.
@@ -33,6 +35,10 @@ class Payable extends Model
         'paid_on',
         'paid_by',
         'created_by',
+        // Contas fixas (App\Services\Finance\RecurringBills): o modelo, o mês e a categoria da cascata.
+        'recurring_bill_id',
+        'competence',
+        'category',
     ];
 
     protected function casts(): array
@@ -44,6 +50,7 @@ class Payable extends Model
             'amount_cents' => 'integer',
             'installment_number' => 'integer',
             'installment_total' => 'integer',
+            'category' => ExpenseCategory::class,
         ];
     }
 
@@ -55,6 +62,17 @@ class Payable extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function recurringBill(): BelongsTo
+    {
+        return $this->belongsTo(RecurringBill::class);
+    }
+
+    /** O boleto da conferência de compras que é esta conta (quando o boleto passou por Compras). */
+    public function bankSlip(): HasOne
+    {
+        return $this->hasOne(BankSlip::class);
     }
 
     public function isPaid(): bool
