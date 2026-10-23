@@ -9,6 +9,7 @@ use App\Models\Receivable;
 use App\Models\ServiceOrder;
 use App\Services\Budgets\Budgets;
 use App\Services\Delivery\Delivery;
+use App\Services\Finance\Credit;
 use App\Services\Inspections\EntryInspection;
 use App\Support\Settings;
 use Livewire\Attributes\Computed;
@@ -45,6 +46,9 @@ new class extends Component
 
     public bool $receivedNow = true;
 
+    /** Gestor: motivo para liberar a prazo cliente travado, sem crédito ou acima do limite. */
+    public string $creditRelease = '';
+
     // Termo
     public string $who = 'cliente';
 
@@ -69,6 +73,12 @@ new class extends Component
         $this->fuelOut = (string) $order->fuel_out;
         $this->replacedParts = (string) $order->replaced_parts;
         $this->dueDates = [today()->toDateString()];
+
+        // Cliente com crédito e prazo: o vencimento já vem no prazo dele (a prazo, não pago na hora).
+        if ($order->customer->hasCredit() && $order->customer->credit_days > 0) {
+            $this->dueDates = [today()->addDays($order->customer->credit_days)->toDateString()];
+            $this->receivedNow = false;
+        }
         $this->signerName = $order->customer->is_izi_fleet ? '' : $order->customer->name;
         $this->signerDocument = (string) ($order->customer->is_izi_fleet ? '' : $order->customer->document);
         $this->invoiceStatus = (string) $order->invoice_status ?: 'pendente';
@@ -105,6 +115,15 @@ new class extends Component
     public function pickup(): ?Consent
     {
         return $this->order->consents()->where('purpose', Consent::PURPOSE_PICKUP)->latest('id')->first();
+    }
+
+    /** A trava do crédito para o pagamento como está na tela (nulo = pode). */
+    #[Computed]
+    public function creditWarning(): ?string
+    {
+        $total = app(Delivery::class)->amounts($this->order)['total'];
+
+        return app(Credit::class)->warning($this->order->customer, $total, $total > 0 && Credit::isOnCredit($this->dueDates, $this->receivedNow));
     }
 
     #[Computed]
@@ -163,6 +182,7 @@ new class extends Component
             'payment_method' => $this->paymentMethod,
             'due_dates' => $this->dueDates,
             'received_now' => $this->receivedNow,
+            'credit_release' => $this->creditRelease,
         ], auth()->user(), request()->ip(), request()->userAgent()));
 
         if ($done) {
@@ -294,12 +314,26 @@ new class extends Component
                     @foreach ($dueDates as $i => $date)
                         <div wire:key="d-{{ $i }}">
                             <label class="{{ $labelClass }}" for="due-{{ $i }}">{{ $installments > 1 ? ($i + 1).'ª parcela' : 'Vencimento' }}</label>
-                            <input id="due-{{ $i }}" type="date" wire:model="dueDates.{{ $i }}" class="{{ $inputClass }}">
+                            <input id="due-{{ $i }}" type="date" wire:model.live="dueDates.{{ $i }}" class="{{ $inputClass }}">
                         </div>
                     @endforeach
                 </div>
                 @if ($installments === 1)
-                    <label class="flex items-center gap-3 min-h-11"><input type="checkbox" wire:model="receivedNow" class="size-5 rounded border-gray-300 text-brand-600" data-test="pago-agora"> O cliente pagou agora</label>
+                    <label class="flex items-center gap-3 min-h-11"><input type="checkbox" wire:model.live="receivedNow" class="size-5 rounded border-gray-300 text-brand-600" data-test="pago-agora"> O cliente pagou agora</label>
+                @endif
+                @if ($order->customer->hasCredit())
+                    <p class="text-xs text-gray-500">{{ $order->customer->name }}: crédito a prazo de {{ $order->customer->credit_days }} dia(s), limite {{ $money($order->customer->credit_limit_cents) }}.</p>
+                @endif
+                @if ($this->creditWarning)
+                    <div class="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-3 text-sm space-y-2" data-test="trava-credito">
+                        <p class="font-semibold text-red-800 dark:text-red-200"><i class="fas fa-lock"></i> {{ $this->creditWarning }}</p>
+                        @can('gestor')
+                            <label class="{{ $labelClass }}" for="creditRelease">Motivo para liberar a prazo (fica na trilha de auditoria)</label>
+                            <input id="creditRelease" type="text" wire:model="creditRelease" maxlength="180" placeholder="Ex.: combinou pagar na sexta" class="{{ $inputClass }}" data-test="motivo-liberacao">
+                        @else
+                            <p class="text-gray-700 dark:text-gray-200">Receba à vista (vencimento hoje e "O cliente pagou agora") ou peça ao gestor para liberar em Financeiro › Crédito.</p>
+                        @endcan
+                    </div>
                 @endif
             @endif
         </section>

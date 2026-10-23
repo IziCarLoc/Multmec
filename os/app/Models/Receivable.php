@@ -45,6 +45,7 @@ class Receivable extends Model
         'loss_id',
         'written_off_by',
         'created_by',
+        'opening_balance',
     ];
 
     protected function casts(): array
@@ -63,6 +64,7 @@ class Receivable extends Model
             'installment_total' => 'integer',
             'customer_brought_part' => 'boolean',
             'received_by_matrix' => 'boolean',
+            'opening_balance' => 'boolean',
             'payment_method' => PaymentMethod::class,
         ];
     }
@@ -133,6 +135,10 @@ class Receivable extends Model
     /** "OS 4521", "OS 4521 · 2/3"... para listas e para o item do prejuízo. */
     public function reference(): string
     {
+        if ($this->opening_balance) {
+            return 'Saldo anterior';
+        }
+
         return 'OS '.($this->order_number ?: '—').($this->installmentLabel() ? ' · parcela '.$this->installmentLabel() : '');
     }
 
@@ -162,5 +168,29 @@ class Receivable extends Model
     public function scopeCounted(Builder $query): Builder
     {
         return $query->where('received_by_matrix', false);
+    }
+
+    /**
+     * Faturamento (Meta do mês, cascata, relatórios): o que conta, sem o "saldo anterior" (dívida de antes do
+     * sistema, que o cliente deve mas não é serviço do período).
+     */
+    public function scopeBilled(Builder $query): Builder
+    {
+        return $query->counted()->where('opening_balance', false);
+    }
+
+    /**
+     * Data do serviço para o faturamento: a da manutenção ou, sem ela, o vencimento (`$from`/`$to` em Y-m-d).
+     */
+    public function scopeServiceBetween(Builder $query, string $from, string $to): Builder
+    {
+        return $query->where(fn (Builder $q) => $q->whereBetween('service_date', [$from, $to])
+            ->orWhere(fn (Builder $n) => $n->whereNull('service_date')->whereBetween('due_date', [$from, $to])));
+    }
+
+    /** Data que vale para o faturamento (a da manutenção ou o vencimento). */
+    public function serviceDay(): CarbonImmutable
+    {
+        return $this->service_date ?? $this->due_date;
     }
 }

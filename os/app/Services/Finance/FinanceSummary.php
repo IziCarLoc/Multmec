@@ -95,7 +95,7 @@ final class FinanceSummary
 
         $receivables = Receivable::query()->where('paid_cents', '>', 0)
             ->with('payments:id,receivable_id,paid_on,amount_cents')
-            ->get(['id', 'total_cents', 'parts_cost_cents', 'labor_cents', 'freight_cents', 'customer_brought_part', 'received_by_matrix', 'service_order_id']);
+            ->get(['id', 'total_cents', 'parts_cost_cents', 'labor_cents', 'freight_cents', 'customer_brought_part', 'received_by_matrix', 'opening_balance', 'service_order_id']);
 
         foreach ($receivables as $receivable) {
             foreach ($receivable->payments as $payment) {

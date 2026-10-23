@@ -343,8 +343,9 @@ class ReceivablesTest extends TestCase
     {
         $vehicle = Vehicle::create(['plate' => 'ABC1234', 'brand_model' => 'Fiat Strada']);
 
-        $first = $this->service->create(['customer_name' => 'Pedro Novo', 'customer_whatsapp' => '(55) 99876-5432', 'order_number' => '77', 'total_cents' => 5000, 'plate' => 'abc-1c34'], ['2026-10-30'], $this->financeUser())->first();
-        $second = $this->service->create(['customer_name' => 'Pedro', 'customer_whatsapp' => '55998765432', 'order_number' => '78', 'total_cents' => 5000], ['2026-10-30'], $this->financeUser())->first();
+        // Vencimento hoje (à vista): cliente novo não tem crédito a prazo (a trava está em CreditTest).
+        $first = $this->service->create(['customer_name' => 'Pedro Novo', 'customer_whatsapp' => '(55) 99876-5432', 'order_number' => '77', 'total_cents' => 5000, 'plate' => 'abc-1c34'], ['2026-10-15'], $this->financeUser())->first();
+        $second = $this->service->create(['customer_name' => 'Pedro', 'customer_whatsapp' => '55998765432', 'order_number' => '78', 'total_cents' => 5000], ['2026-10-15'], $this->financeUser())->first();
 
         $this->assertSame(1, Customer::query()->where('whatsapp', '55998765432')->count());
         $this->assertSame($first->customer_id, $second->customer_id);
