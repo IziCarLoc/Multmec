@@ -176,13 +176,18 @@ class StageMachineTest extends TestCase
         $this->assertSame('Abraçadeira da mangueira solta', $order->transitions()->get()->last()->reason);
     }
 
-    public function test_entrega_grava_a_hora(): void
+    public function test_entrega_so_com_o_termo_de_retirada_e_entregue_e_final(): void
     {
         $order = $this->order(Stage::ProntaRetirada);
 
-        $order = $this->machine()->move($order, Stage::ProntaRetirada, Stage::Entregue, User::factory()->atendimento()->create());
+        try {
+            $this->machine()->move($order, Stage::ProntaRetirada, Stage::Entregue, User::factory()->atendimento()->create());
+            $this->fail('Sem fotos de saída e termo assinado não entrega.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('termo de retirada assinado', $e->getMessage());
+        }
 
-        $this->assertNotNull($order->delivered_at);
+        $order->update(['stage' => Stage::Entregue, 'delivered_at' => now()]);
         $this->assertSame([], app(StageMachine::class)->targetsFor($order, User::factory()->gestor()->create()));
     }
 

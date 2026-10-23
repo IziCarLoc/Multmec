@@ -20,8 +20,12 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | 1 | Clientes e veículos (busca por placa, frota Izi vinda do Gestão), fornecedores e prestadores, OS com etapas, travas, histórico e volta pelo gestor, quadro, lista e avisos por perfil, publicação automática | Pronto |
 | 2 | Fotos pela câmera com hash conferido, original intacto, carimbo e miniatura; vistoria parte A (fotos guiadas, painel, acessórios, avarias marcadas na foto, autorizações, quem aprova) e parte B (14 itens); PDF da vistoria; envio pelo WhatsApp em dois toques ou assinatura na tela | Pronto |
 | 3 | Diagnóstico com peças e serviços (horas, necessário/recomendado, origem da peça, prestador externo com custo), serviços frequentes, vídeo de até 20 MB; cotação COT-AAAA-NNNN pelo WhatsApp (sem dados do cliente), respostas por peça e vencedor | Pronto |
-| 4 a 6 | Orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
-| 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
+| 4 | Orçamento: preço de cada item (o gestor vê a margem), previsão e pagamento, prévia em PDF; "Enviar orçamento" congela a cópia com SHA-256; envio do PDF pelo WhatsApp, resumo e link para o cliente responder sem login; aceite de todos ou de parte dos itens (mensagem com print, presencial, assinatura, link ou alçada da Izi, acima dela só o gestor), autorização da peça não original, recusa com motivo e valor do diagnóstico; adendos depois do aceite | Pronto |
+| 5 | Execução: apontamento (Iniciar/Pausar; um por vez; o esquecido fecha às 22h marcado para conferir), peça recebida ou não usada (aprovada com peça por chegar vai sozinha para "Aguardando peças"), foto da peça velha e da nova, torque das rodas em Nm com o nº do torquímetro, lacres, test drive exigido; conferência por quem não apontou tempo (Expresso ou Completo, OK / Não se aplica / CORRIGIR, foto de cada roda com a listra, test drive com km, hora, motorista e trajeto); CORRIGIR devolve para a execução e a conferência recomeça | Pronto |
+| 6 | Entrega: fotos de saída ao lado das de entrada, km e combustível de saída, peças substituídas, pagamento (à vista ou em parcelas) e termo de retirada assinado na tela pelo cliente ou por pessoa autorizada por escrito, com o documento; na entrega nascem o A receber (valor aprovado, custo das peças, mão de obra) e o pagamento de cada prestador externo; recusada cobra só o diagnóstico. Nota fiscal (pendente/emitida, não trava) e "copiar resumo" para o sistema fiscal. PDF completo da OS (entrada × saída, peças velha × nova, conferência, test drive, retirada, garantia e privacidade, com os SHA-256). Por mês (entrada ou entrega) com relatório em PDF paisagem | Pronto |
+| Financeiro 2a | Painel (vencimentos que abrem a lista filtrada, em aberto, movimento do mês e "Por mês" pela data do pagamento), A receber (parcelas em centavos exatos, pagamentos parciais com data, recebimento pela matriz, baixa do vencido como prejuízo), A pagar (boletos com parcelas e "marcar pago"), prestadores externos, inadimplentes e prejuízos; o atendimento não vê lucro; o A receber e os prestadores nascem na entrega da OS | Pronto |
+| Importação | Ajustes > Importar dos artefatos (só gestor): fornecedores, boletos com as parcelas, A receber com os recebimentos, pagamentos do Douglas e prejuízos do artefato do Financeiro; prévia antes de gravar, SHA-256 do arquivo, pode rodar de novo sem duplicar (traz as baixas feitas depois no artefato). O artefato da OS não tem OS para trazer | Pronto |
+| Financeiro 2b | Meta do mês, contas fixas, crédito a prazo com trava, conferência de compras (NF-e, boleto, DDA), relatórios, importação da planilha | Em andamento |
 
 ## Rodar no computador
 
@@ -35,6 +39,7 @@ php artisan key:generate
 touch database/database.sqlite
 php artisan migrate --seed
 php artisan db:seed --class=DemoSeeder   # 5 usuários, 3 fornecedores e 2 OS de exemplo (uma pronta para cotar), senha multmec123
+php artisan db:seed --class=FinanceDemoSeeder   # lançamentos de exemplo do Financeiro (depois do DemoSeeder)
 php artisan serve                        # http://127.0.0.1:8000
 ```
 

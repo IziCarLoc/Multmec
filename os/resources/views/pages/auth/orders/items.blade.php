@@ -47,11 +47,9 @@ new class extends Component
         $user = auth()->user();
         $stage = $this->order->refresh()->stage;
 
-        return match (true) {
-            $user->can('atendimento') => in_array($stage, [Stage::EmVistoria, Stage::EmDiagnostico, Stage::AguardandoCotacao], true),
-            $user->can('oficina') => in_array($stage, [Stage::EmVistoria, Stage::EmDiagnostico], true),
-            default => false,
-        };
+        return $user->can('oficina') || $user->can('atendimento')
+            ? in_array($stage, OrderItems::editableStages($user), true)
+            : false;
     }
 
     #[Computed]
@@ -185,20 +183,31 @@ new class extends Component
                                 <p class="text-xs text-gray-500">
                                     @if ($item->supplier) {{ $item->isService() ? 'Prestador' : 'Fornecedor' }}: {{ $item->supplier->name }} @endif
                                     @if ($item->cost_cents !== null) · custo {{ $money($item->cost_cents) }} @endif
+                                    @if ($item->price_cents !== null) · preço {{ $money($item->price_cents) }} @endif
                                     @if ($item->brand) · {{ $item->brand }} @endif
                                     @if ($item->lead_time) · prazo {{ $item->lead_time }} @endif
                                 </p>
                             @endif
                             @if ($item->mechanic) <p class="text-[11px] text-gray-400">Lançado por {{ $item->mechanic->short_name }}</p> @endif
+                            @if ($item->approvalLabel())
+                                <span @class([
+                                    'mt-1 inline-block rounded px-2 py-0.5 text-xs font-semibold',
+                                    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' => $item->approval === OrderItem::APPROVED,
+                                    'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200' => $item->approval === OrderItem::REFUSED,
+                                    'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' => $item->approval === null,
+                                ]) data-test="aprovacao-{{ $item->id }}">{{ $item->approvalLabel() }}</span>
+                            @elseif (\App\Services\Budgets\Budgets::isAddendumStage($order->stage))
+                                <span class="mt-1 inline-block rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 px-2 py-0.5 text-xs font-semibold">Novo: vai em adendo</span>
+                            @endif
                         </div>
-                        @if ($this->editable)
+                        @if ($this->editable && ! $item->isFrozen())
                             <div class="flex gap-1">
                                 <button type="button" wire:click="edit({{ $item->id }})" class="min-h-11 px-3 text-brand-600" title="Editar"><i class="fas fa-pen"></i></button>
                                 <button type="button" wire:click="remove({{ $item->id }})" wire:confirm="Tirar &quot;{{ $item->description }}&quot; da OS?" class="min-h-11 px-3 text-red-600" title="Remover"><i class="fas fa-trash"></i></button>
                             </div>
                         @endif
                     </div>
-                    @if ($commercial && $item->isPart() && $this->editable)
+                    @if ($commercial && $item->isPart() && $this->editable && ! $item->isFrozen())
                         <div class="flex flex-wrap items-center gap-2">
                             <label class="text-xs text-gray-500" for="origin-{{ $item->id }}">Origem</label>
                             <select id="origin-{{ $item->id }}" wire:change="setOrigin({{ $item->id }}, $event.target.value)" class="{{ $inputClass }} sm:w-72">

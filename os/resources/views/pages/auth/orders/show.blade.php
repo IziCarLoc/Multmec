@@ -58,14 +58,25 @@ new class extends Component
 
     public string $backTo = '';
 
+    /** Aceite/recusa pedido pelo Próximo passo: a aba Orçamento abre com a janela da resposta. */
+    public ?string $decisionToOpen = null;
+
     public function mount(ServiceOrder $order): void
     {
         $this->order = $order;
         $this->fillFromOrder();
 
-        // Na etapa da vistoria, a tela já abre nela.
-        if ($order->stage === Stage::EmVistoria && ! request()->has('aba')) {
-            $this->tab = 'vistoria';
+        // A tela já abre na aba da etapa: vistoria; para o atendimento, cotação ou orçamento.
+        if (! request()->has('aba')) {
+            $this->tab = match (true) {
+                $order->stage === Stage::EmVistoria => 'vistoria',
+                $order->stage === Stage::AguardandoCotacao && auth()->user()->can('atendimento') => $order->items()->get()->contains(fn ($i) => $i->toQuote() && $i->supplier_id === null) ? 'cotacao' : 'orcamento',
+                $order->stage === Stage::AguardandoAprovacao && auth()->user()->can('atendimento') => 'orcamento',
+                in_array($order->stage, [Stage::Aprovada, Stage::AguardandoPecas, Stage::EmExecucao], true) => 'execucao',
+                $order->stage === Stage::EmConferencia => 'conferencia',
+                $order->stage === Stage::ProntaRetirada && auth()->user()->can('atendimento') => 'entrega',
+                default => $this->tab,
+            };
         }
     }
 
@@ -108,7 +119,7 @@ new class extends Component
     #[Computed]
     public function missing(): array
     {
-        return collect($this->targets)->mapWithKeys(fn (Stage $to) => [$to->value => app(StageGate::class)->missing($this->order, $to)])->all();
+        return collect($this->targets)->mapWithKeys(fn (Stage $to) => [$to->value => app(StageGate::class)->missing($this->order, $to, auth()->user())])->all();
     }
 
     #[Computed]
@@ -126,16 +137,50 @@ new class extends Component
     /** Passos que pedem o motivo antes (recusa e CORRIGIR). */
     private function needsReason(Stage $to): bool
     {
-        return $to === Stage::Recusada || ($this->order->stage === Stage::EmConferencia && $to === Stage::EmExecucao);
+        return $this->order->stage === Stage::EmConferencia && $to === Stage::EmExecucao;
+    }
+
+    /** Trocou de aba: a janela da resposta só abre sozinha na vez em que foi pedida. */
+    public function updatedTab(): void
+    {
+        $this->decisionToOpen = null;
+    }
+
+    /** Aceite e recusa do orçamento são registrados na aba Orçamento (como o cliente respondeu, quem, itens). */
+    public function isDecision(Stage $target): bool
+    {
+        return $this->order->stage === Stage::AguardandoAprovacao && in_array($target, [Stage::Aprovada, Stage::Recusada], true);
+    }
+
+    /** A entrega (fotos de saída, pagamento, termo assinado) é registrada na aba Entrega. */
+    public function isDelivery(Stage $target): bool
+    {
+        return $this->order->stage === Stage::ProntaRetirada && $target === Stage::Entregue;
     }
 
     public function advance(string $to, StageMachine $machine): void
     {
         $target = Stage::from($to);
 
+        if ($this->isDelivery($target)) {
+            $this->tab = 'entrega';
+
+            return;
+        }
+
+        if ($this->isDecision($target)) {
+            $this->tab = 'orcamento';
+            $this->decisionToOpen = $target === Stage::Recusada ? 'recusa' : 'aceite';
+            $this->dispatch('open-decision', kind: $this->decisionToOpen);
+
+            return;
+        }
+
         if ($this->needsReason($target) && $this->reasonFor !== $to) {
             $this->reasonFor = $to;
-            $this->reason = '';
+            // CORRIGIR: o motivo já vem com o que a conferência marcou.
+            $this->reason = app(\App\Services\Execution\FinalCheck::class)->items($this->order)
+                ->where('state', 'corrigir')->map(fn ($item) => $item->label.': '.$item->detail)->implode('; ');
 
             return;
         }
@@ -276,6 +321,10 @@ new class extends Component
         'problema' => 'Diagnóstico',
         'itens' => 'Peças e serviços',
         'cotacao' => $user->can('atendimento') ? 'Cotação' : null,
+        'orcamento' => $user->can('atendimento') ? 'Orçamento' : null,
+        'execucao' => $order->stage->position() >= Stage::Aprovada->position() && $order->stage !== Stage::Cancelada ? 'Execução' : null,
+        'conferencia' => $order->final_check_round > 0 ? 'Conferência' : null,
+        'entrega' => $user->can('atendimento') && in_array($order->stage, [Stage::ProntaRetirada, Stage::Entregue], true) ? 'Entrega' : null,
         'historico' => 'Histórico',
     ]);
 @endphp
@@ -309,6 +358,7 @@ new class extends Component
                     Entrada {{ $order->entry_date?->format('d/m/Y') }}
                     @if ($order->expected_date) · previsão {{ $order->expected_date->format('d/m/Y') }} @endif
                     · {{ $order->unit->name }}
+                    @can('atendimento') · <a href="{{ route('orders.pdf', $order) }}" target="_blank" class="text-brand-600 hover:underline" data-test="pdf-os"><i class="fas fa-file-pdf"></i> PDF da OS</a> @endcan
                 </p>
             </div>
         </div>
@@ -328,9 +378,9 @@ new class extends Component
             </div>
 
             @forelse ($this->targets as $target)
-                @php($missing = $this->missing[$target->value] ?? [])
+                @php($missing = $this->isDecision($target) ? [] : ($this->missing[$target->value] ?? []))
                 <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3" wire:key="t-{{ $target->value }}">
-                    <button type="button" wire:click="advance('{{ $target->value }}')" @disabled($missing !== []) class="{{ $btnPrimary }} w-full sm:w-auto" data-test="avancar-{{ $target->value }}">
+                    <button type="button" wire:click="advance('{{ $target->value }}')" @disabled($missing !== [] && ! $this->isDelivery($target)) class="{{ $btnPrimary }} w-full sm:w-auto" data-test="avancar-{{ $target->value }}">
                         <i class="fas fa-arrow-right"></i> {{ StageMachine::actionLabel($order->stage, $target) }}
                     </button>
                     @if ($missing !== [])
@@ -438,6 +488,14 @@ new class extends Component
         <livewire:pages::auth.orders.items :order="$order" :key="'itens-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'cotacao' && $user->can('atendimento'))
         <livewire:pages::auth.orders.quote :order="$order" :key="'cotacao-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'execucao' && isset($tabs['execucao']))
+        <livewire:pages::auth.orders.execution :order="$order" :key="'execucao-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'conferencia' && isset($tabs['conferencia']))
+        <livewire:pages::auth.orders.final-check :order="$order" :key="'conferencia-'.$order->id.'-'.$order->stage->value.'-'.$order->final_check_round" />
+    @elseif ($tab === 'entrega' && isset($tabs['entrega']))
+        <livewire:pages::auth.orders.delivery :order="$order" :key="'entrega-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'orcamento' && $user->can('atendimento'))
+        <livewire:pages::auth.orders.budget :order="$order" :open="$decisionToOpen" :key="'orcamento-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'problema')
         <form wire:submit="saveProblem" class="{{ $cardClass }} p-4 space-y-4">
             <div>

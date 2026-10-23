@@ -3,7 +3,13 @@
 namespace App\Services\Orders;
 
 use App\Enums\Stage;
+use App\Models\Budget;
 use App\Models\ServiceOrder;
+use App\Models\User;
+use App\Services\Budgets\Budgets;
+use App\Services\Delivery\Delivery;
+use App\Services\Execution\Execution;
+use App\Services\Execution\FinalCheck;
 use App\Services\Inspections\EntryInspection;
 use App\Services\Inspections\TechnicalChecklist;
 use App\Services\Quotes\Quotations;
@@ -20,12 +26,16 @@ final class StageGate
         private readonly EntryInspection $inspection,
         private readonly TechnicalChecklist $technical,
         private readonly Quotations $quotations,
+        private readonly Budgets $budgets,
+        private readonly Execution $execution,
+        private readonly FinalCheck $finalCheck,
+        private readonly Delivery $delivery,
     ) {}
 
     /**
      * @return list<array{label: string, tab: string, field: ?string}>
      */
-    public function missing(ServiceOrder $order, Stage $to): array
+    public function missing(ServiceOrder $order, Stage $to, ?User $by = null): array
     {
         $missing = [];
         $need = function (bool $ok, string $label, string $tab, ?string $field = null) use (&$missing) {
@@ -52,10 +62,8 @@ final class StageGate
                 break;
 
             case Stage::AguardandoCotacao:
-            case Stage::AguardandoAprovacao:
                 if ($order->stage === Stage::EmDiagnostico) {
                     $items = $order->items()->get();
-                    $toQuote = $items->filter(fn ($item) => $item->toQuote());
 
                     $need(filled(trim((string) $order->diagnosis)), 'Diagnóstico (em linguagem de cliente)', 'problema', 'diagnosis');
                     $need($items->isNotEmpty(), 'Ao menos uma peça ou serviço', 'itens', 'novo-item');
@@ -63,16 +71,55 @@ final class StageGate
                     foreach ($items->filter(fn ($item) => $item->isService() && (float) $item->hours <= 0) as $service) {
                         $need(false, 'Horas estimadas: '.$service->description, 'itens', 'item-'.$service->id);
                     }
-
-                    if ($items->isNotEmpty()) {
-                        $to === Stage::AguardandoCotacao
-                            ? $need($toQuote->isNotEmpty(), 'Nenhuma peça para cotar: use "Enviar para orçamento"', 'itens', null)
-                            : $need($toQuote->isEmpty(), 'Há peça para cotar: use "Enviar para cotação"', 'itens', null);
-                    }
                 }
+                break;
 
+            case Stage::AguardandoAprovacao:
+                // Enviar o orçamento: vencedor e preço em cada item, previsão de entrega e pagamento.
                 if ($order->stage === Stage::AguardandoCotacao) {
-                    $missing = array_merge($missing, $this->quotations->missing($order));
+                    $missing = $this->budgets->missing($order);
+                }
+                break;
+
+            case Stage::Aprovada:
+            case Stage::Recusada:
+                if ($order->stage === Stage::AguardandoAprovacao) {
+                    $status = $this->budgets->main($order)?->status;
+                    $to === Stage::Aprovada
+                        ? $need($status === Budget::STATUS_APPROVED, 'Aceite do cliente registrado (aba Orçamento)', 'orcamento', 'resposta')
+                        : $need($status === Budget::STATUS_REFUSED, 'Recusa registrada com o motivo (aba Orçamento)', 'orcamento', 'resposta');
+                }
+                break;
+
+            case Stage::AguardandoPecas:
+                if ($order->stage === Stage::Aprovada) {
+                    $need($this->execution->partsPending($order), 'Nenhuma peça aprovada esperando chegar', 'execucao', null);
+                }
+                break;
+
+            case Stage::EmExecucao:
+                // Nada entra em execução sem aceite (o CORRIGIR, que volta da conferência, não passa aqui).
+                if (in_array($order->stage, [Stage::Aprovada, Stage::AguardandoPecas], true)) {
+                    $need($this->budgets->main($order)?->status === Budget::STATUS_APPROVED, 'Aceite do orçamento', 'orcamento', 'resposta');
+                }
+                break;
+
+            case Stage::EmConferencia:
+                if ($order->stage === Stage::EmExecucao) {
+                    $missing = $this->execution->missing($order);
+                }
+                break;
+
+            case Stage::ProntaRetirada:
+                if ($order->stage === Stage::EmConferencia) {
+                    $missing = $this->finalCheck->missing($order, $by);
+                }
+                break;
+
+            case Stage::Entregue:
+                if ($order->stage === Stage::ProntaRetirada) {
+                    $missing = $this->delivery->missing($order);
+                    $need($this->delivery->pickupSigned($order), 'Termo de retirada assinado por quem retira (aba Entrega)', 'entrega', 'termo');
                 }
                 break;
 

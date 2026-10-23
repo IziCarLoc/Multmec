@@ -6,6 +6,9 @@ use App\Enums\Role;
 use App\Enums\Stage;
 use App\Models\ServiceOrder;
 use App\Models\User;
+use App\Services\Budgets\Budgets;
+use App\Services\Execution\WorkLog;
+use App\Support\Money;
 use Illuminate\Support\Collection;
 
 /**
@@ -19,7 +22,7 @@ final class Inbox
     /** Etapa → o que o atendimento faz nela. */
     private const ATENDIMENTO = [
         'aberta' => 'Iniciar a vistoria',
-        'aguardando_cotacao' => 'Cotar as peças',
+        'aguardando_cotacao' => 'Cotar e montar o orçamento',
         'aguardando_aprovacao' => 'Cobrar o aceite do cliente',
         'pronta_retirada' => 'Avisar o cliente e entregar',
         'recusada' => 'Devolver o carro',
@@ -53,8 +56,8 @@ final class Inbox
             ->inStage(...array_map(fn (string $stage) => Stage::from($stage), array_keys($tasks)))
             ->orderBy('stage_changed_at')
             ->get()
-            // Conferência é de quem não fez o serviço (a regra completa, por apontamento, vem com a execução).
-            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && $order->responsible_id === $user->id)
+            // Conferência é de quem não apontou tempo na OS.
+            ->reject(fn (ServiceOrder $order) => $order->stage === Stage::EmConferencia && app(WorkLog::class)->workedOn($order, $user))
             ->map(fn (ServiceOrder $order) => ['order' => $order, 'task' => $tasks[$order->stage->value]]);
 
         if ($user->isGestor()) {
@@ -65,7 +68,40 @@ final class Inbox
                 ->map(fn (ServiceOrder $order) => ['order' => $order, 'task' => 'Parada há '.$order->daysInStage().' dias em "'.$order->stage->label().'"']);
         }
 
-        return $orders->values();
+        return $this->budgetTasks($user)->concat($orders)->unique(fn (array $task) => $task['order']->id.$task['task'])->values();
+    }
+
+    /**
+     * Orçamento: adendo para montar ou esperando resposta (atendimento) e carro da Izi acima da alçada (gestor).
+     *
+     * @return Collection<int, array{order: ServiceOrder, task: string}>
+     */
+    private function budgetTasks(User $user): Collection
+    {
+        if (! $user->can('atendimento')) {
+            return collect();
+        }
+
+        $budgets = app(Budgets::class);
+        $tasks = collect();
+        $orders = ServiceOrder::query()->with(['vehicle', 'customer', 'responsible'])
+            ->inStage(Stage::AguardandoAprovacao, ...Budgets::ADDENDUM_STAGES)
+            ->orderBy('stage_changed_at')
+            ->get();
+
+        foreach ($orders as $order) {
+            $pending = $budgets->pending($order);
+
+            if ($pending && $user->isGestor() && $budgets->aboveAuthority($pending)) {
+                $tasks->push(['order' => $order, 'task' => 'Aprovar acima da alçada da Izi ('.Money::brl($pending->total_cents).')']);
+            } elseif ($pending && $pending->isAddendum() && ! $user->isGestor()) {
+                $tasks->push(['order' => $order, 'task' => 'Cobrar o aceite do adendo']);
+            } elseif (! $pending && Budgets::isAddendumStage($order->stage) && ! $user->isGestor() && $budgets->draftItems($order)->isNotEmpty()) {
+                $tasks->push(['order' => $order, 'task' => 'Montar o adendo (item novo)']);
+            }
+        }
+
+        return $tasks;
     }
 
     public function count(User $user): int

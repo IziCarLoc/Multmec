@@ -28,7 +28,7 @@ enum Stage: string
             self::Aberta => 'Aberta',
             self::EmVistoria => 'Em vistoria',
             self::EmDiagnostico => 'Em diagnóstico',
-            self::AguardandoCotacao => 'Aguardando cotação',
+            self::AguardandoCotacao => 'Em orçamento',
             self::AguardandoAprovacao => 'Aguardando aprovação',
             self::Aprovada => 'Aprovada',
             self::Recusada => 'Recusada',

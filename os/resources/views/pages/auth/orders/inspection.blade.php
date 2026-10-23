@@ -433,7 +433,7 @@ new class extends Component
             <div class="grid gap-4 sm:grid-cols-2">
                 <div id="km">
                     <label class="{{ $labelClass }}" for="km-input">Km no painel</label>
-                    <input id="km-input" type="text" inputmode="numeric" wire:model.blur="km" @disabled(! $this->editableA) placeholder="87.512" class="{{ $inputClass }} text-xl" data-test="km">
+                    <input id="km-input" type="text" inputmode="numeric" wire:model.live.blur="km" @disabled(! $this->editableA) placeholder="87.512" class="{{ $inputClass }} text-xl" data-test="km">
                 </div>
                 <div id="combustivel">
                     <p class="{{ $labelClass }}">Combustível</p>
@@ -446,14 +446,14 @@ new class extends Component
                 <div id="luzes" class="sm:col-span-2">
                     <label class="{{ $labelClass }}" for="lights">Luzes acesas no painel</label>
                     <div class="flex gap-2">
-                        <input id="lights" type="text" wire:model.blur="lights" @disabled(! $this->editableA) maxlength="255" placeholder="Ex.: injeção, ABS, óleo" class="{{ $inputClass }}" data-test="luzes">
+                        <input id="lights" type="text" wire:model.live.blur="lights" @disabled(! $this->editableA) maxlength="255" placeholder="Ex.: injeção, ABS, óleo" class="{{ $inputClass }}" data-test="luzes">
                         @if ($this->editableA) <button type="button" wire:click="quick('dashboard_lights', 'Nenhuma')" class="{{ $btnSecondary }} shrink-0">Nenhuma</button> @endif
                     </div>
                 </div>
                 <div id="objetos" class="sm:col-span-2">
                     <label class="{{ $labelClass }}" for="belongings">Objetos e acessórios deixados no carro</label>
                     <div class="flex gap-2">
-                        <textarea id="belongings" wire:model.blur="belongings" @disabled(! $this->editableA) rows="2" placeholder="Ex.: cadeirinha, som removível, documentos no porta-luvas" class="{{ $inputClass }}" data-test="objetos"></textarea>
+                        <textarea id="belongings" wire:model.live.blur="belongings" @disabled(! $this->editableA) rows="2" placeholder="Ex.: cadeirinha, som removível, documentos no porta-luvas" class="{{ $inputClass }}" data-test="objetos"></textarea>
                         @if ($this->editableA) <button type="button" wire:click="quick('belongings', 'Nenhum')" class="{{ $btnSecondary }} shrink-0 self-start">Nenhum</button> @endif
                     </div>
                 </div>
@@ -551,8 +551,8 @@ new class extends Component
                     </div>
                     @if ($approverKind === 'outro')
                         <div class="mt-2 grid gap-2 sm:grid-cols-2">
-                            <input type="text" wire:model.blur="approverName" @disabled(! $this->editableA) placeholder="Nome de quem aprova" class="{{ $inputClass }}">
-                            <input type="tel" wire:model.blur="approverWhatsapp" @disabled(! $this->editableA) placeholder="WhatsApp com DDD" class="{{ $inputClass }}">
+                            <input type="text" wire:model.live.blur="approverName" @disabled(! $this->editableA) placeholder="Nome de quem aprova" class="{{ $inputClass }}">
+                            <input type="tel" wire:model.live.blur="approverWhatsapp" @disabled(! $this->editableA) placeholder="WhatsApp com DDD" class="{{ $inputClass }}">
                         </div>
                     @elseif ($approverKind === 'cliente')
                         <p class="mt-1 text-sm text-gray-500">{{ $order->customer->name }} · {{ $order->customer->whatsappFormatted() }}</p>

@@ -74,6 +74,7 @@ new #[Title('Clientes e veículos')] class extends Component
             'phone2' => Phone::format($customer->phone2),
             'document' => $customer->documentFormatted(),
             'email' => (string) $customer->email,
+            'address' => (string) $customer->address,
             'notes' => (string) $customer->notes,
         ];
     }
@@ -117,6 +118,7 @@ new #[Title('Clientes e veículos')] class extends Component
                 'phone2' => Phone::digits($this->form['phone2'] ?? '') ?: null,
                 'document' => Document::digits($this->form['document'] ?? '') ?: null,
                 'email' => trim((string) ($this->form['email'] ?? '')) ?: null,
+                'address' => mb_substr(trim((string) ($this->form['address'] ?? '')), 0, 255) ?: null,
                 'notes' => trim((string) ($this->form['notes'] ?? '')) ?: null,
             ]);
             AuditLog::record($customer, 'customer.updated');
@@ -208,6 +210,7 @@ new #[Title('Clientes e veículos')] class extends Component
                 <div><label class="{{ $labelClass }}">Outro telefone</label><input type="tel" wire:model="form.phone2" class="{{ $inputClass }}">@error('form.phone2') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror</div>
                 <div><label class="{{ $labelClass }}">CPF ou CNPJ</label><x-document-input model="form.document" />@error('form.document') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror</div>
                 <div><label class="{{ $labelClass }}">E-mail</label><input type="email" wire:model="form.email" class="{{ $inputClass }}">@error('form.email') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror</div>
+                <div class="sm:col-span-2"><label class="{{ $labelClass }}">Endereço</label><input type="text" wire:model="form.address" maxlength="255" placeholder="Rua, número, bairro…" class="{{ $inputClass }}" data-test="cliente-endereco"></div>
                 <div class="sm:col-span-2"><label class="{{ $labelClass }}">Observações</label><textarea wire:model="form.notes" rows="2" class="{{ $inputClass }}"></textarea></div>
             </div>
             <div class="flex justify-end gap-2">

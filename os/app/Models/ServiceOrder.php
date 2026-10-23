@@ -39,6 +39,8 @@ class ServiceOrder extends Model
         'test_drive_authorized',
         'diagnosis_charged',
         'diagnosis_fee_cents',
+        'payment_terms',
+        'budget_notes',
         'received_by',
         'responsible_id',
         'has_wheel_work',
@@ -64,6 +66,22 @@ class ServiceOrder extends Model
         'inspection_pdf_path',
         'inspection_pdf_sha256',
         'inspection_snapshot_sha256',
+        'torque_nm',
+        'torque_wrench',
+        'work_finished_at',
+        'work_finished_by',
+        'test_drive_km_before',
+        'test_drive_km_after',
+        'test_drive_started_at',
+        'test_drive_ended_at',
+        'test_drive_driver_id',
+        'test_drive_route',
+        'final_check_template',
+        'final_check_round',
+        'final_checker_id',
+        'replaced_parts',
+        'delivered_by',
+        'invoice_updated_at',
     ];
 
     protected function casts(): array
@@ -89,6 +107,14 @@ class ServiceOrder extends Model
             'has_wheel_wrench' => 'boolean',
             'no_visible_damage' => 'boolean',
             'inspection_sent_at' => 'datetime',
+            'torque_nm' => 'integer',
+            'work_finished_at' => 'datetime',
+            'test_drive_km_before' => 'integer',
+            'test_drive_km_after' => 'integer',
+            'test_drive_started_at' => 'datetime',
+            'test_drive_ended_at' => 'datetime',
+            'final_check_round' => 'integer',
+            'invoice_updated_at' => 'datetime',
         ];
     }
 
@@ -157,6 +183,35 @@ class ServiceOrder extends Model
     public function quoteRequests(): HasMany
     {
         return $this->hasMany(QuoteRequest::class)->orderBy('id');
+    }
+
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class)->orderBy('started_at');
+    }
+
+    public function testDriver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'test_drive_driver_id');
+    }
+
+    public function finalChecker(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'final_checker_id');
+    }
+
+    /** Orçamento (nº 1) e adendos, do mais antigo para o mais novo. */
+    public function budgets(): HasMany
+    {
+        return $this->hasMany(Budget::class)->orderBy('number');
+    }
+
+    /** Carro da frota Izi: a aprovação é pela alçada da Izi (até o limite, o atendimento; acima, o gestor). */
+    public function isIziApproval(): bool
+    {
+        $this->loadMissing('customer');
+
+        return $this->approver_kind === 'izi' || (bool) $this->customer?->is_izi_fleet;
     }
 
     /** Pasta dos arquivos desta OS no disco privado. */
