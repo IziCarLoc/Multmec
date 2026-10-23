@@ -1,6 +1,6 @@
 # Sistema de OS da Multmec Liberdade
 
-Ordens de serviço da oficina, do recebimento do carro até a entrega. O sistema registra quem fez cada etapa e trava os dois portões:
+Ordens de serviço da oficina, do recebimento do carro até a entrega, e o Financeiro. O sistema registra quem fez cada etapa e trava os dois portões:
 - **nada é executado sem aceite** do cliente;
 - **nada é entregue sem conferência** feita por quem não executou.
 
@@ -9,7 +9,7 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 - **Tecnologia:** a mesma do Gestão de Frota da Izi Car.
   - Laravel 12, PHP 8.4 (a do servidor), Livewire 4 com Alpine e Tailwind já compilado.
   - PDF com dompdf; MySQL na Hostinger.
-- **Onde fica:** pasta `os/` do repositório Multmec. O controle financeiro em Node (`app/`) é outro sistema.
+- **Onde fica:** pasta `os/` do repositório Multmec. O Financeiro também é daqui; o controle financeiro antigo em Node (`app/`) foi substituído e fica só como referência.
 - **Convenções para quem mexe no código:** [`CLAUDE.md`](CLAUDE.md).
 
 ## Situação
@@ -27,12 +27,16 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | Importação | Ajustes > Importar dos artefatos (só gestor): fornecedores, boletos com as parcelas, A receber com os recebimentos, pagamentos do Douglas e prejuízos do artefato do Financeiro; prévia antes de gravar, SHA-256 do arquivo, pode rodar de novo sem duplicar (traz as baixas feitas depois no artefato). O artefato da OS não tem OS para trazer | Pronto |
 | Financeiro 2b | **Parte A:** Meta do mês (só gestor: faturado × meta com ritmo e "quanto falta por dia útil", feriados nacionais e da Páscoa, cascata até o disponível para os sócios, ponto de equilíbrio, caixa, simulador OS × ticket, regras do dinheiro editáveis); contas fixas que geram o A pagar do mês sem duplicar (botão e agendador); crédito a prazo (tipo, prazo e limite no cadastro, situação com faixas de atraso, TRAVADO na entrega e no A receber, liberação do gestor com motivo na trilha, saldo anterior, "Recebi" que quita o mais antigo, extrato e cobrança para o WhatsApp); relatórios (avisos, próximos 7 dias, mês a mês, tamanho das OS, clientes, mecânicos, orçamentos sem resposta, CSV; o atendimento não vê lucro); importação da planilha CONTROLE SERVIÇOS com prévia e data de corte. **Parte B:** conferência de compras (linha abaixo) | Pronto |
 | Conferência de compras | Financeiro > Compras (gestor e atendimento): notas por XML (vários de uma vez, XML guardado) ou sem XML (texto da DANFE ou a chave) com a consulta no portal da NF-e como prova; boleto pela linha digitável ou pelo texto do boleto, ligado sozinho à nota (ou à mão) e virando a conta do A pagar; destino de cada peça (OS, estoque, uso interno, devolvida, outra empresa) com o custo da OS vindo da nota; ocorrências da mais grave para a menor ("Está certo, conferi" do gestor, com motivo, vale enquanto o fato não mudar); trava no A pagar (boleto com problema grave ou sem conferir quem recebe no app do banco não é pago; "pagar mesmo assim" com motivo); fornecedor conferido pelo gestor e recebedores autorizados; empresas do grupo e acerto entre elas; DDA do banco (beta); parâmetros em Ajustes > Compras. CNPJ alfanumérico aceito | Pronto |
+| Revisão (23/10) | Revisão independente de todo o código com as correções: vencedor da cotação não muda item aceito, torque só pela oficina, gestor que inicia não vira executor, depois do CORRIGIR rodas e test drive de novo, PDF enviado travado no servidor, crédito na edição, saldo anterior só do gestor, CNPJ com letras; avisos e painel lendo em lote; Ajustes agrupados | Pronto |
 
-**Depois de publicar o Financeiro 2b:** a venda a prazo passa a travar para cliente sem limite de crédito. Antes de liberar para o atendimento, o gestor:
-- em Financeiro › Crédito, define tipo, prazo e limite da Izi Car e das frotas (e lança o saldo anterior de quem já devia);
-- em Financeiro › Meta do mês › Regras do dinheiro, preenche meta, impostos, maquininha, reserva, retirada, feriados estaduais/municipais e o saldo do banco de um dia;
-- em Financeiro › Contas fixas, cadastra folha, aluguel, energia, sistema, contador e pró-labore;
-- se quiser o histórico, importa a planilha em Ajustes › Importar a planilha (com a data de corte).
+### Primeiros passos do gestor (uma vez, antes do piloto)
+1. **Senhas:** em Ajustes › Usuários, cada pessoa com o próprio nome e uma senha nova (as contas genéricas vêm com a senha do `.env`).
+2. **Crédito:** em Financeiro › Crédito, tipo, prazo e limite da Izi Car e das frotas, e o saldo anterior de quem já devia. Sem limite, a venda a prazo trava (à vista funciona; o gestor pode liberar com motivo).
+3. **Regras do dinheiro:** em Financeiro › Meta do mês › Regras do dinheiro, meta, imposto, maquininha, reserva, retirada, feriados estaduais/municipais e o saldo do banco de um dia. Em branco, nada é estimado.
+4. **Contas fixas:** em Financeiro › Contas fixas, folha, aluguel, energia, sistema, contador e pró-labore.
+5. **Dados antigos:** em Ajustes › Importar dos artefatos (o arquivo da exportação) e, se quiser o histórico, Ajustes › Importar a planilha (com a data de corte).
+6. **Compras:** os boletos importados aparecem em Financeiro › Compras como "sem passar pela conferência"; "Está certo, conferi" nos que estiverem certos. Parâmetros em Ajustes › Conferência de compras.
+7. **Conferir:** Ajustes › Saúde do sistema toda verde.
 
 ## Rodar no computador
 
