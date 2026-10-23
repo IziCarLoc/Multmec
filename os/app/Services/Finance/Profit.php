@@ -86,11 +86,19 @@ final class Profit
 
     public function grossFor(Receivable $receivable): int
     {
+        if ($receivable->opening_balance) {
+            return 0;
+        }
+
         return $this->gross($receivable->total_cents, $this->partsCost($receivable), $receivable->freight_cents, $this->providerCost($receivable));
     }
 
     public function partFor(Receivable $receivable): int
     {
+        if ($receivable->opening_balance) {
+            return 0;
+        }
+
         return $this->part($receivable->total_cents, $receivable->labor_cents, $this->partsCost($receivable), $receivable->freight_cents);
     }
 

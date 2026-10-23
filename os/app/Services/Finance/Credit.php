@@ -60,6 +60,23 @@ final class Credit
     }
 
     /**
+     * Editar um lançamento também é vender a prazo quando, vencendo depois de hoje e com saldo, adia o vencimento,
+     * aumenta o valor ou passa para outro cliente. Devolve [a prazo?, quanto entra de novo no crédito do cliente].
+     * O aviso da tela e o Receivables::update usam esta mesma regra.
+     *
+     * @return array{0: bool, 1: int}
+     */
+    public static function onCreditEdit(Receivable $current, ?int $customerId, string $dueDate, int $totalCents, bool $byMatrix, ?CarbonImmutable $today = null): array
+    {
+        $today = ($today ?? CarbonImmutable::today())->toDateString();
+        $otherCustomer = $customerId === null || $customerId !== (int) $current->customer_id;
+        $onCredit = ! $byMatrix && $dueDate > $today && $totalCents > $current->paid_cents
+            && ($dueDate > $current->due_date->toDateString() || $totalCents > $current->total_cents || $otherCustomer);
+
+        return [$onCredit, $otherCustomer ? $totalCents - $current->paid_cents : max(0, $totalCents - $current->total_cents)];
+    }
+
+    /**
      * Em aberto do cliente, na ordem em que um recebimento quita: saldo anterior, depois o vencimento mais antigo.
      *
      * @return Collection<int, Receivable>
@@ -284,7 +301,8 @@ final class Credit
                     throw new DomainException('O saldo anterior não pode ficar abaixo do que já foi recebido dele ('.Money::brl($existing->paid_cents).').');
                 }
 
-                $existing->update(['total_cents' => $cents, 'due_date' => $date, 'service_date' => $date, 'received_on' => $existing->paid_cents >= $cents ? $existing->received_on : null]);
+                $existing->update(['total_cents' => $cents, 'due_date' => $date, 'service_date' => $date]);
+                $this->receivables->refreshSummary($existing);
                 AuditLog::record($existing, 'receivable.updated', 'Saldo anterior corrigido', ['total_cents' => $cents, 'due_date' => $date]);
 
                 return $existing->fresh();

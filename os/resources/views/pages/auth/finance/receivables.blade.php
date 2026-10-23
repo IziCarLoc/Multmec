@@ -266,10 +266,9 @@ new #[Title('A receber')] class extends Component
         $current = $this->current;
 
         if ($current) {
-            $due = (string) ($this->form['due_date'] ?? '');
-            $onCredit = $due > today()->toDateString() && $total > $current->paid_cents && ($due > $current->due_date->toDateString() || $total > $current->total_cents);
+            [$onCredit, $newCents] = Credit::onCreditEdit($current, $this->newCustomer ? null : $this->selectedCustomer?->id, (string) ($this->form['due_date'] ?? ''), $total, false);
 
-            return app(Credit::class)->warning($customer, max(0, $total - $current->total_cents), $onCredit);
+            return app(Credit::class)->warning($customer, $newCents, $onCredit);
         }
 
         $dates = $this->installments ? $this->dueDates : [(string) ($this->form['due_date'] ?? '')];
@@ -600,7 +599,7 @@ new #[Title('A receber')] class extends Component
                                     $receivable->customer_brought_part ? 'peça do cliente' : null,
                                     $receivable->received_by_matrix ? 'não entra no Painel' : null,
                                     $st === ReceivableStatus::Parcial ? 'total '.$money($receivable->total_cents) : null,
-                                    $showProfit ? 'lucro '.$money($profit->grossFor($receivable)) : null,
+                                    $showProfit && ! $receivable->opening_balance ? 'lucro '.$money($profit->grossFor($receivable)) : null,
                                     $receivable->notes,
                                 ])->filter()->implode(' · ') }}
                             </p>

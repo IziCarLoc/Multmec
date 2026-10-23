@@ -7,8 +7,10 @@ use App\Models\Customer;
 use App\Models\Receivable;
 use App\Models\User;
 use App\Services\Finance\Credit;
+use App\Services\Finance\Profit;
 use App\Services\Finance\Receivables;
 use App\Services\Finance\Reports;
+use App\Services\Finance\Revenue;
 use Carbon\CarbonImmutable;
 use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -274,5 +276,83 @@ class CreditTest extends TestCase
             ->assertHasErrors('form.credit_limit');
 
         $this->assertSame(300_000, $customer->fresh()->credit_limit_cents);
+    }
+
+    public function test_saldo_anterior_so_o_gestor_muda_nao_tem_lucro_e_correcao_refaz_o_recebido(): void
+    {
+        $customer = $this->lessor(500_000);
+        $this->travelTo(CarbonImmutable::parse('2026-09-25 10:00'));
+        $opening = $this->credit()->setOpeningBalance($customer, '1.000', '2026-09-01', $this->financeUser());
+        $atendimento = User::factory()->atendimento()->create();
+        $service = app(Receivables::class);
+
+        foreach ([
+            fn () => $service->update($opening, ['customer_id' => $customer->id, 'order_number' => 'SALDO', 'total_cents' => 10_000, 'due_date' => '2026-09-01'], $atendimento),
+            fn () => $service->delete($opening, $atendimento),
+            fn () => $service->writeOff($opening, $atendimento),
+        ] as $attempt) {
+            try {
+                $attempt();
+                $this->fail('O saldo anterior só o gestor muda.');
+            } catch (DomainException $e) {
+                $this->assertStringContainsString('só o gestor', $e->getMessage());
+            }
+        }
+
+        $this->assertSame(0, app(Profit::class)->grossFor($opening->fresh()));
+        $this->credit()->receive($customer, '600', '2026-09-25', $this->financeUser());
+
+        // Corrigido para o que já entrou: fica recebido, com a data do último pagamento.
+        $corrected = $this->credit()->setOpeningBalance($customer, '600', '2026-09-01', $this->financeUser());
+        $this->assertSame(['recebido', '2026-09-25'], [$corrected->status()->value, $corrected->received_on?->toDateString()]);
+    }
+
+    public function test_trocar_o_cliente_na_edicao_passa_pela_trava_e_a_tela_mostra_a_liberacao(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-15 10:00'));
+        $fleet = $this->financeCustomer();
+        $walkIn = $this->walkInCustomer();
+        $receivable = $this->receivable(['total_cents' => 30_000, 'parts_cost_cents' => 0, 'labor_cents' => 30_000, 'freight_cents' => 0], '2026-10-25', $fleet);
+        $data = ['customer_id' => $walkIn->id, 'order_number' => '4521', 'total_cents' => 30_000, 'labor_cents' => 30_000, 'due_date' => '2026-10-25'];
+
+        try {
+            app(Receivables::class)->update($receivable, $data, User::factory()->atendimento()->create());
+            $this->fail('Passar a dívida a prazo para cliente sem crédito devia travar.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('não tem crédito a prazo', $e->getMessage());
+        }
+
+        Livewire::actingAs($this->financeUser())->test('pages::auth.finance.receivables')
+            ->call('edit', $receivable->id)
+            ->call('pickCustomer', $walkIn->id)
+            ->assertSeeHtml('data-test="motivo-liberacao"')
+            ->set('creditRelease', 'Mesma família, combinou pagar dia 25')
+            ->call('save')
+            ->assertDispatched('toast', type: 'success');
+
+        $this->assertSame($walkIn->id, $receivable->fresh()->customer_id);
+    }
+
+    public function test_parcelas_sem_data_do_servico_ficam_no_mes_da_primeira(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-15 10:00'));
+        $created = app(Receivables::class)->create(['customer_id' => $this->financeCustomer()->id, 'order_number' => '777', 'total_cents' => 90_000], ['2026-12-15', '2026-10-15', '2026-11-15'], $this->financeUser());
+
+        $this->assertSame(['2026-10-15'], $created->map(fn (Receivable $r) => $r->service_date->toDateString())->unique()->values()->all());
+        $this->assertSame(1, app(Revenue::class)->orders('2026-10-01', '2026-10-31')->count());
+        $this->assertSame(0, app(Revenue::class)->orders('2026-11-01', '2026-11-30')->count());
+    }
+
+    public function test_cnpj_alfanumerico_do_cliente_fica_com_as_letras(): void
+    {
+        $customer = $this->walkInCustomer('Empresa Nova', '55990000088');
+
+        Livewire::actingAs($this->financeUser())->test('pages::auth.registry.index')
+            ->call('editCustomer', $customer->id)
+            ->set('form.document', '12.ABC.345/01DE-35')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('12ABC34501DE35', $customer->fresh()->document);
     }
 }

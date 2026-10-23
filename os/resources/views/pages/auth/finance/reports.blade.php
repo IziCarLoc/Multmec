@@ -108,7 +108,7 @@ new #[Title('Relatórios')] class extends Component
                 $line = [
                     $r->order_number, $r->serviceDay()->format('d/m/Y'), $r->customer?->name, $r->plate, $r->vehicle_model,
                     $reais($r->total_cents), $reais($r->labor_cents), $reais($parts), $reais($r->freight_cents), $reais($providers[$r->id] ?? 0),
-                    ...($withProfit ? [$reais($profit->gross($r->total_cents, $parts, $r->freight_cents, $providers[$r->id] ?? 0))] : []),
+                    ...($withProfit ? [$reais($r->opening_balance ? 0 : $profit->gross($r->total_cents, $parts, $r->freight_cents, $providers[$r->id] ?? 0))] : []),
                     $reais($r->paid_cents), $reais($r->balanceCents()), $r->due_date->format('d/m/Y'), $r->status()->label(), $r->opening_balance ? 'sim' : '',
                 ];
                 echo implode(',', array_map($cell, $line))."\n";

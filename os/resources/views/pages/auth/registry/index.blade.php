@@ -131,7 +131,7 @@ new #[Title('Clientes e veículos')] class extends Component
                 'name' => trim($this->form['name']),
                 'whatsapp' => Phone::digits($this->form['whatsapp'] ?? '') ?: null,
                 'phone2' => Phone::digits($this->form['phone2'] ?? '') ?: null,
-                'document' => Document::digits($this->form['document'] ?? '') ?: null,
+                'document' => Document::clean($this->form['document'] ?? '') ?: null,
                 'email' => trim((string) ($this->form['email'] ?? '')) ?: null,
                 'address' => mb_substr(trim((string) ($this->form['address'] ?? '')), 0, 255) ?: null,
                 'notes' => trim((string) ($this->form['notes'] ?? '')) ?: null,

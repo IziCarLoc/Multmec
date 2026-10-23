@@ -208,7 +208,7 @@ final class ArtifactImport
             return;
         }
 
-        $document = Document::digits((string) ($doc['cnpj'] ?? $doc['documento'] ?? ''));
+        $document = Document::clean((string) ($doc['cnpj'] ?? $doc['documento'] ?? ''));
         $phone = Phone::digits((string) ($doc['telefone'] ?? ''));
         $notes = collect([
             filled($doc['contato'] ?? null) ? 'Contato: '.$this->clean($doc['contato']) : null,
@@ -509,7 +509,7 @@ final class ArtifactImport
             return $customer;
         }
 
-        $document = Document::digits((string) ($doc['documento'] ?? $doc['cpf'] ?? $doc['cnpj'] ?? $doc['cpfCnpj'] ?? ''));
+        $document = Document::clean((string) ($doc['documento'] ?? $doc['cpf'] ?? $doc['cnpj'] ?? $doc['cpfCnpj'] ?? ''));
         $customer = Customer::create([
             'name' => Str::limit($name, 120, ''),
             'whatsapp' => Phone::isValid($phone) ? $phone : null,
