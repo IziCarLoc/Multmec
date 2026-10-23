@@ -88,7 +88,7 @@ new class extends Component
     {
         $quoted = $this->order->quoteRequests()->with('items')->get()->flatMap(fn (QuoteRequest $r) => $r->items->pluck('id'))->all();
 
-        return $this->order->items()->get()->filter(fn (OrderItem $item) => $item->toQuote() && ! in_array($item->id, $quoted, true))->values();
+        return $this->order->items()->get()->filter(fn (OrderItem $item) => $item->toQuote() && ! $item->isFrozen() && ! in_array($item->id, $quoted, true))->values();
     }
 
     #[Computed]
@@ -106,7 +106,7 @@ new class extends Component
     #[Computed]
     public function editable(): bool
     {
-        return in_array($this->order->refresh()->stage, [Stage::EmDiagnostico, Stage::AguardandoCotacao], true);
+        return in_array($this->order->refresh()->stage, [Stage::EmDiagnostico, Stage::AguardandoCotacao, ...\App\Services\Budgets\Budgets::ADDENDUM_STAGES], true);
     }
 
     private function changed(): void
@@ -254,17 +254,17 @@ new class extends Component
                                 </select>
                                 <div class="relative sm:col-span-2">
                                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">R$</span>
-                                    <input type="text" inputmode="decimal" wire:model.blur="responses.{{ $key }}.cost" @disabled(! $this->editable) placeholder="Custo" class="{{ $inputClass }} pl-9" data-test="custo-{{ $item->id }}-{{ $send->supplier_id }}">
+                                    <input type="text" inputmode="decimal" wire:model.live.blur="responses.{{ $key }}.cost" @disabled(! $this->editable) placeholder="Custo" class="{{ $inputClass }} pl-9" data-test="custo-{{ $item->id }}-{{ $send->supplier_id }}">
                                 </div>
-                                <input type="text" wire:model.blur="responses.{{ $key }}.brand" @disabled(! $this->editable) placeholder="Marca" class="{{ $inputClass }} sm:col-span-2">
+                                <input type="text" wire:model.live.blur="responses.{{ $key }}.brand" @disabled(! $this->editable) placeholder="Marca" class="{{ $inputClass }} sm:col-span-2">
                                 <select wire:model.live="responses.{{ $key }}.origin" @disabled(! $this->editable) class="{{ $inputClass }} sm:col-span-2" aria-label="Tipo da peça">
                                     <option value="">Tipo…</option>
                                     @foreach ([PartOrigin::Genuina, PartOrigin::Original, PartOrigin::Paralela, PartOrigin::Usada] as $origin)
                                         <option value="{{ $origin->value }}">{{ $origin->shortLabel() }}</option>
                                     @endforeach
                                 </select>
-                                <input type="text" wire:model.blur="responses.{{ $key }}.lead_time" @disabled(! $this->editable) placeholder="Prazo" class="{{ $inputClass }} sm:col-span-1">
-                                <input type="text" wire:model.blur="responses.{{ $key }}.warranty" @disabled(! $this->editable) placeholder="Garantia" class="{{ $inputClass }} sm:col-span-1">
+                                <input type="text" wire:model.live.blur="responses.{{ $key }}.lead_time" @disabled(! $this->editable) placeholder="Prazo" class="{{ $inputClass }} sm:col-span-1">
+                                <input type="text" wire:model.live.blur="responses.{{ $key }}.warranty" @disabled(! $this->editable) placeholder="Garantia" class="{{ $inputClass }} sm:col-span-1">
                                 @if ($this->editable)
                                     <button type="button" wire:click="chooseWinner({{ $request->id }}, {{ $item->id }}, {{ $send->supplier_id }})" class="{{ $isWinner ? $btnSecondary : $btnPrimary }} col-span-2 sm:col-span-2 text-sm" data-test="vencedor-{{ $item->id }}-{{ $send->supplier_id }}"><i class="fas fa-trophy"></i> {{ $isWinner ? 'Vencedor' : 'Escolher' }}</button>
                                 @endif

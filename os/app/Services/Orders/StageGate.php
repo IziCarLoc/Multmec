@@ -3,7 +3,9 @@
 namespace App\Services\Orders;
 
 use App\Enums\Stage;
+use App\Models\Budget;
 use App\Models\ServiceOrder;
+use App\Services\Budgets\Budgets;
 use App\Services\Inspections\EntryInspection;
 use App\Services\Inspections\TechnicalChecklist;
 use App\Services\Quotes\Quotations;
@@ -20,6 +22,7 @@ final class StageGate
         private readonly EntryInspection $inspection,
         private readonly TechnicalChecklist $technical,
         private readonly Quotations $quotations,
+        private readonly Budgets $budgets,
     ) {}
 
     /**
@@ -52,10 +55,8 @@ final class StageGate
                 break;
 
             case Stage::AguardandoCotacao:
-            case Stage::AguardandoAprovacao:
                 if ($order->stage === Stage::EmDiagnostico) {
                     $items = $order->items()->get();
-                    $toQuote = $items->filter(fn ($item) => $item->toQuote());
 
                     $need(filled(trim((string) $order->diagnosis)), 'Diagnóstico (em linguagem de cliente)', 'problema', 'diagnosis');
                     $need($items->isNotEmpty(), 'Ao menos uma peça ou serviço', 'itens', 'novo-item');
@@ -63,16 +64,23 @@ final class StageGate
                     foreach ($items->filter(fn ($item) => $item->isService() && (float) $item->hours <= 0) as $service) {
                         $need(false, 'Horas estimadas: '.$service->description, 'itens', 'item-'.$service->id);
                     }
-
-                    if ($items->isNotEmpty()) {
-                        $to === Stage::AguardandoCotacao
-                            ? $need($toQuote->isNotEmpty(), 'Nenhuma peça para cotar: use "Enviar para orçamento"', 'itens', null)
-                            : $need($toQuote->isEmpty(), 'Há peça para cotar: use "Enviar para cotação"', 'itens', null);
-                    }
                 }
+                break;
 
+            case Stage::AguardandoAprovacao:
+                // Enviar o orçamento: vencedor e preço em cada item, previsão de entrega e pagamento.
                 if ($order->stage === Stage::AguardandoCotacao) {
-                    $missing = array_merge($missing, $this->quotations->missing($order));
+                    $missing = $this->budgets->missing($order);
+                }
+                break;
+
+            case Stage::Aprovada:
+            case Stage::Recusada:
+                if ($order->stage === Stage::AguardandoAprovacao) {
+                    $status = $this->budgets->main($order)?->status;
+                    $to === Stage::Aprovada
+                        ? $need($status === Budget::STATUS_APPROVED, 'Aceite do cliente registrado (aba Orçamento)', 'orcamento', 'resposta')
+                        : $need($status === Budget::STATUS_REFUSED, 'Recusa registrada com o motivo (aba Orçamento)', 'orcamento', 'resposta');
                 }
                 break;
 

@@ -21,6 +21,10 @@ class OrderItem extends Model
 
     public const PRIORITIES = ['necessario' => 'Necessário', 'recomendado' => 'Recomendado'];
 
+    public const APPROVED = 'aprovado';
+
+    public const REFUSED = 'recusado';
+
     protected $fillable = [
         'service_order_id',
         'kind',
@@ -37,6 +41,8 @@ class OrderItem extends Model
         'supplier_id',
         'cost_cents',
         'price_cents',
+        'budget_id',
+        'approval',
         'brand',
         'lead_time',
         'requires_photos',
@@ -74,6 +80,11 @@ class OrderItem extends Model
         return $this->belongsTo(User::class, 'mechanic_id');
     }
 
+    public function budget(): BelongsTo
+    {
+        return $this->belongsTo(Budget::class);
+    }
+
     public function quoteResponses(): HasMany
     {
         return $this->hasMany(QuoteResponse::class, 'os_item_id');
@@ -93,6 +104,37 @@ class OrderItem extends Model
     public function toQuote(): bool
     {
         return $this->isPart() && $this->needs_quote && ! ($this->origin?->skipsQuote() ?? false);
+    }
+
+    /** Já está num orçamento enviado: não muda mais (o gestor volta a etapa para refazer). */
+    public function isFrozen(): bool
+    {
+        return $this->budget_id !== null;
+    }
+
+    /** Valor da linha ao cliente: preço unitário × quantidade, em centavos. */
+    public function lineTotalCents(): ?int
+    {
+        return $this->price_cents === null ? null : (int) round($this->price_cents * (float) $this->quantity);
+    }
+
+    /** Custo da linha (peça: custo unitário do vencedor × quantidade; serviço: o custo do prestador). */
+    public function lineCostCents(): ?int
+    {
+        if ($this->cost_cents === null) {
+            return null;
+        }
+
+        return $this->isPart() ? (int) round($this->cost_cents * (float) $this->quantity) : $this->cost_cents;
+    }
+
+    public function approvalLabel(): ?string
+    {
+        return match ($this->approval) {
+            self::APPROVED => 'Aprovado',
+            self::REFUSED => 'Recusado pelo cliente',
+            default => $this->budget_id ? 'Aguardando aceite' : null,
+        };
     }
 
     /** "2 un" / "1,5 h": quantidade sem casas desnecessárias. */

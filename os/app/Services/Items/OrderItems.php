@@ -9,6 +9,7 @@ use App\Models\OrderItem;
 use App\Models\ServiceOrder;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Budgets\Budgets;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,8 +25,8 @@ final class OrderItems
     /** Campos que o mecânico pode mexer. */
     private const TECHNICAL = ['description', 'quantity', 'priority', 'hours', 'part_code', 'preferred_brand', 'accepted_brands', 'quote_detail', 'requires_photos'];
 
-    /** Campos do atendimento (além dos técnicos). */
-    private const COMMERCIAL = ['origin', 'supplier_id', 'cost_cents'];
+    /** Campos do atendimento (além dos técnicos): origem, fornecedor/prestador, custo e o preço ao cliente. */
+    private const COMMERCIAL = ['origin', 'supplier_id', 'cost_cents', 'price_cents'];
 
     /**
      * @param  array<string, mixed>  $data
@@ -63,6 +64,7 @@ final class OrderItems
     public function update(OrderItem $item, array $data, User $by): OrderItem
     {
         $order = $item->serviceOrder;
+        $this->assertNotFrozen($item);
         $this->assertCanEdit($order, $by);
 
         $item->fill($this->clean($item, $data, $by));
@@ -79,6 +81,7 @@ final class OrderItems
     public function remove(OrderItem $item, User $by): void
     {
         $order = $item->serviceOrder;
+        $this->assertNotFrozen($item);
         $this->assertCanEdit($order, $by);
 
         AuditLog::record($order, 'item.removed', null, ['item' => $item->id, 'descricao' => $item->description]);
@@ -112,7 +115,7 @@ final class OrderItems
         $allowed = $commercial ? [...self::TECHNICAL, ...self::COMMERCIAL] : self::TECHNICAL;
 
         if (! $commercial && array_intersect(array_keys($data), self::COMMERCIAL) !== []) {
-            throw new DomainException('Custo, origem e fornecedor são lançados pelo atendimento.');
+            throw new DomainException('Custo, preço, origem e fornecedor são lançados pelo atendimento.');
         }
 
         $values = [];
@@ -125,7 +128,7 @@ final class OrderItems
                 'priority' => array_key_exists((string) $value, OrderItem::PRIORITIES) ? $value : throw new DomainException('Necessário ou recomendado?'),
                 'origin' => $value === null || $value === '' ? null : (PartOrigin::tryFrom((string) $value) ?? throw new DomainException('Origem da peça inválida.')),
                 'supplier_id' => $this->supplier($value, $item),
-                'cost_cents' => $value === null || $value === '' ? null : max(0, (int) $value),
+                'cost_cents', 'price_cents' => $value === null || $value === '' ? null : max(0, (int) $value),
                 'requires_photos' => (bool) $value,
                 default => mb_substr(trim((string) $value), 0, $field === 'quote_detail' ? 255 : ($field === 'accepted_brands' ? 120 : 60)) ?: null,
             };
@@ -179,21 +182,39 @@ final class OrderItems
         return $supplier->id;
     }
 
-    /** Itens mudam no diagnóstico e na cotação; depois do orçamento enviado, item novo vira adendo. */
+    /**
+     * Itens mudam no diagnóstico e na montagem do orçamento. Com o orçamento no cliente, nada muda; depois do
+     * aceite, item novo vira adendo (o mecânico lança o que achou, o atendimento cota e põe o preço).
+     */
     private function assertCanEdit(ServiceOrder $order, User $by): void
     {
-        $stages = Gate::forUser($by)->allows('atendimento')
-            ? [Stage::EmVistoria, Stage::EmDiagnostico, Stage::AguardandoCotacao]
-            : [Stage::EmVistoria, Stage::EmDiagnostico];
-
         if (! Gate::forUser($by)->any(['oficina', 'atendimento'])) {
             throw new DomainException('Sem permissão para mexer nos itens.');
         }
 
-        if (! in_array($order->stage, $stages, true)) {
-            throw new DomainException($order->stage === Stage::AguardandoCotacao
-                ? 'Na cotação, quem corrige os itens é o atendimento.'
-                : 'Os itens já estão no orçamento. Item novo agora vira adendo, com aceite novo.');
+        if (! in_array($order->stage, self::editableStages($by), true)) {
+            throw new DomainException(match (true) {
+                $order->stage === Stage::AguardandoCotacao => 'No orçamento, quem corrige os itens é o atendimento.',
+                $order->stage === Stage::AguardandoAprovacao => 'O orçamento está com o cliente. Item novo entra depois do aceite, como adendo (ou o gestor volta a etapa).',
+                default => 'Nesta etapa os itens não mudam mais.',
+            });
+        }
+    }
+
+    /** @return list<Stage> */
+    public static function editableStages(User $by): array
+    {
+        $base = Gate::forUser($by)->allows('atendimento')
+            ? [Stage::EmVistoria, Stage::EmDiagnostico, Stage::AguardandoCotacao]
+            : [Stage::EmVistoria, Stage::EmDiagnostico];
+
+        return [...$base, ...Budgets::ADDENDUM_STAGES];
+    }
+
+    private function assertNotFrozen(OrderItem $item): void
+    {
+        if ($item->isFrozen()) {
+            throw new DomainException('"'.$item->description.'" já foi para o cliente no orçamento e não muda mais. Para refazer, o gestor volta a etapa.');
         }
     }
 }

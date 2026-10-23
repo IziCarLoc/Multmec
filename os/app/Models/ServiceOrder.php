@@ -39,6 +39,8 @@ class ServiceOrder extends Model
         'test_drive_authorized',
         'diagnosis_charged',
         'diagnosis_fee_cents',
+        'payment_terms',
+        'budget_notes',
         'received_by',
         'responsible_id',
         'has_wheel_work',
@@ -157,6 +159,20 @@ class ServiceOrder extends Model
     public function quoteRequests(): HasMany
     {
         return $this->hasMany(QuoteRequest::class)->orderBy('id');
+    }
+
+    /** Orçamento (nº 1) e adendos, do mais antigo para o mais novo. */
+    public function budgets(): HasMany
+    {
+        return $this->hasMany(Budget::class)->orderBy('number');
+    }
+
+    /** Carro da frota Izi: a aprovação é pela alçada da Izi (até o limite, o atendimento; acima, o gestor). */
+    public function isIziApproval(): bool
+    {
+        $this->loadMissing('customer');
+
+        return $this->approver_kind === 'izi' || (bool) $this->customer?->is_izi_fleet;
     }
 
     /** Pasta dos arquivos desta OS no disco privado. */

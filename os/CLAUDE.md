@@ -11,6 +11,7 @@ Pasta `os/` do repositório Multmec. O financeiro em Node (`app/`) é outro sist
 ## Código
 - Laravel 12 + Livewire 4 (componentes de arquivo único em `resources/views/pages/**`, rota `Route::livewire('/x', 'pages::pasta.nome')`), Alpine inline, Tailwind compilado, Font Awesome 6.0 por CDN.
 - Nada de React, Vue, Inertia, API interna ou `fetch` nas telas: o estado é do Livewire. Envio de arquivo usa `$wire.upload(...)`.
+- Campo que grava sozinho ao sair usa `wire:model.live.blur`: no Livewire 4 o `.blur` sem `.live` não envia nada ao servidor (`WireModelSyncTest` trava). Hook `updatedX($value, $key)` de array recebe às vezes a lista inteira (`$key` nulo).
 - Diretiva Blade nunca colada em letra/número (`@endif @if`, não `@endif@if`). `BladeDirectiveSpacingTest` trava.
 - Dinheiro sempre em centavos (inteiro). Datas só-data com o cast `App\Casts\DateOnly`. Hora que vale como prova é sempre a do servidor.
 - Regra de negócio em `app/Services`. Erro para o operador é `DomainException` com mensagem em português.
@@ -31,6 +32,8 @@ Pasta `os/` do repositório Multmec. O financeiro em Node (`app/`) é outro sist
 - Vistoria de entrada (`App\Services\Inspections`): parte A em `EntryInspection`, parte B em `TechnicalChecklist`, envio/assinatura em `InspectionDelivery`. Só muda na etapa "Em vistoria"; se mudar depois de enviada/assinada, precisa enviar de novo (o resumo dos dados tem SHA-256).
 - Peças e serviços da OS: `App\Services\Items\OrderItems` (o mecânico lança descrição, quantidade, horas e prioridade; origem, fornecedor/prestador e custo são do atendimento e o serviço recusa campo comercial vindo do mecânico). Item só muda no diagnóstico (e na cotação pelo atendimento); depois do orçamento, item novo é adendo.
 - Cotação: `App\Services\Quotes\Quotations` (código COT-AAAA-NNNN, mensagem, `wa.me` por fornecedor, respostas, vencedor que preenche o item). **A mensagem ao fornecedor nunca leva nome, CPF, telefone ou e-mail do cliente**: só o carro e as peças (o teste trava). Peça "do cliente" ou "do estoque" não vai para a cotação (`PartOrigin::skipsQuote()`).
+- Orçamento: `App\Services\Budgets\Budgets`. "Enviar orçamento ao cliente" (StageMachine) congela uma cópia (`budgets.snapshot` + SHA-256) e trava os itens; PDF, resumo e link saem da cópia. Aceite (de todos ou de parte dos itens) e recusa só por `approve()`/`refuse()` (ou `answerByLink()`), que gravam o `Consent` e mudam a etapa. Carro da Izi: alçada (`izi_approval_limit_cents`; acima, só o gestor). Peça paralela/usada pede autorização. Depois do aceite, item novo vira adendo (`sendAddendum`). O gestor voltar a etapa cancela o orçamento e os links.
+- Link do cliente (`/orcamento/{token}`, sem login): abrir não muda nada; só o botão grava, uma vez, dentro da validade (conta do primeiro envio).
 - Vídeo entra só por `MediaStore::storeVideo()` (até 20 MB, hash conferido, guardado como chegou; a tela põe OS, placa e hora do servidor por cima).
 - Classes de campo e botão compartilhadas: `$inputClass`, `$labelClass`, `$btnPrimary`, `$btnSecondary`, `$cardClass`. Não redefinir na tela.
 - Janela: `<x-modal>`. CPF/CNPJ: `<x-document-input>`. Aviso: evento `toast`.

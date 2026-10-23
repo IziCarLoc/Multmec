@@ -14,7 +14,19 @@ class Consent extends Model
 {
     public const PURPOSE_ENTRY = 'entrada';
 
+    public const PURPOSE_APPROVAL = 'aceite';
+
+    public const PURPOSE_REFUSAL = 'recusa';
+
     public const METHOD_SCREEN = 'assinatura_tela';
+
+    public const METHOD_LINK = 'link';
+
+    public const METHOD_MESSAGE = 'mensagem';
+
+    public const METHOD_IN_PERSON = 'presencial';
+
+    public const METHOD_AUTHORITY = 'alcada';
 
     protected $fillable = [
         'service_order_id',

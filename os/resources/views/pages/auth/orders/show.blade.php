@@ -58,14 +58,22 @@ new class extends Component
 
     public string $backTo = '';
 
+    /** Aceite/recusa pedido pelo Próximo passo: a aba Orçamento abre com a janela da resposta. */
+    public ?string $decisionToOpen = null;
+
     public function mount(ServiceOrder $order): void
     {
         $this->order = $order;
         $this->fillFromOrder();
 
-        // Na etapa da vistoria, a tela já abre nela.
-        if ($order->stage === Stage::EmVistoria && ! request()->has('aba')) {
-            $this->tab = 'vistoria';
+        // A tela já abre na aba da etapa: vistoria; para o atendimento, cotação ou orçamento.
+        if (! request()->has('aba')) {
+            $this->tab = match (true) {
+                $order->stage === Stage::EmVistoria => 'vistoria',
+                $order->stage === Stage::AguardandoCotacao && auth()->user()->can('atendimento') => $order->items()->get()->contains(fn ($i) => $i->toQuote() && $i->supplier_id === null) ? 'cotacao' : 'orcamento',
+                $order->stage === Stage::AguardandoAprovacao && auth()->user()->can('atendimento') => 'orcamento',
+                default => $this->tab,
+            };
         }
     }
 
@@ -126,12 +134,32 @@ new class extends Component
     /** Passos que pedem o motivo antes (recusa e CORRIGIR). */
     private function needsReason(Stage $to): bool
     {
-        return $to === Stage::Recusada || ($this->order->stage === Stage::EmConferencia && $to === Stage::EmExecucao);
+        return $this->order->stage === Stage::EmConferencia && $to === Stage::EmExecucao;
+    }
+
+    /** Trocou de aba: a janela da resposta só abre sozinha na vez em que foi pedida. */
+    public function updatedTab(): void
+    {
+        $this->decisionToOpen = null;
+    }
+
+    /** Aceite e recusa do orçamento são registrados na aba Orçamento (como o cliente respondeu, quem, itens). */
+    public function isDecision(Stage $target): bool
+    {
+        return $this->order->stage === Stage::AguardandoAprovacao && in_array($target, [Stage::Aprovada, Stage::Recusada], true);
     }
 
     public function advance(string $to, StageMachine $machine): void
     {
         $target = Stage::from($to);
+
+        if ($this->isDecision($target)) {
+            $this->tab = 'orcamento';
+            $this->decisionToOpen = $target === Stage::Recusada ? 'recusa' : 'aceite';
+            $this->dispatch('open-decision', kind: $this->decisionToOpen);
+
+            return;
+        }
 
         if ($this->needsReason($target) && $this->reasonFor !== $to) {
             $this->reasonFor = $to;
@@ -276,6 +304,7 @@ new class extends Component
         'problema' => 'Diagnóstico',
         'itens' => 'Peças e serviços',
         'cotacao' => $user->can('atendimento') ? 'Cotação' : null,
+        'orcamento' => $user->can('atendimento') ? 'Orçamento' : null,
         'historico' => 'Histórico',
     ]);
 @endphp
@@ -328,7 +357,7 @@ new class extends Component
             </div>
 
             @forelse ($this->targets as $target)
-                @php($missing = $this->missing[$target->value] ?? [])
+                @php($missing = $this->isDecision($target) ? [] : ($this->missing[$target->value] ?? []))
                 <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3" wire:key="t-{{ $target->value }}">
                     <button type="button" wire:click="advance('{{ $target->value }}')" @disabled($missing !== []) class="{{ $btnPrimary }} w-full sm:w-auto" data-test="avancar-{{ $target->value }}">
                         <i class="fas fa-arrow-right"></i> {{ StageMachine::actionLabel($order->stage, $target) }}
@@ -438,6 +467,8 @@ new class extends Component
         <livewire:pages::auth.orders.items :order="$order" :key="'itens-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'cotacao' && $user->can('atendimento'))
         <livewire:pages::auth.orders.quote :order="$order" :key="'cotacao-'.$order->id.'-'.$order->stage->value" />
+    @elseif ($tab === 'orcamento' && $user->can('atendimento'))
+        <livewire:pages::auth.orders.budget :order="$order" :open="$decisionToOpen" :key="'orcamento-'.$order->id.'-'.$order->stage->value" />
     @elseif ($tab === 'problema')
         <form wire:submit="saveProblem" class="{{ $cardClass }} p-4 space-y-4">
             <div>

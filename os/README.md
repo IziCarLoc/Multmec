@@ -20,7 +20,8 @@ Mecânicos usam no celular; o atendimento usa no celular da oficina e no computa
 | 1 | Clientes e veículos (busca por placa, frota Izi vinda do Gestão), fornecedores e prestadores, OS com etapas, travas, histórico e volta pelo gestor, quadro, lista e avisos por perfil, publicação automática | Pronto |
 | 2 | Fotos pela câmera com hash conferido, original intacto, carimbo e miniatura; vistoria parte A (fotos guiadas, painel, acessórios, avarias marcadas na foto, autorizações, quem aprova) e parte B (14 itens); PDF da vistoria; envio pelo WhatsApp em dois toques ou assinatura na tela | Pronto |
 | 3 | Diagnóstico com peças e serviços (horas, necessário/recomendado, origem da peça, prestador externo com custo), serviços frequentes, vídeo de até 20 MB; cotação COT-AAAA-NNNN pelo WhatsApp (sem dados do cliente), respostas por peça e vencedor | Pronto |
-| 4 a 6 | Orçamento e aceite, execução, conferência, entrega e PDFs | Até 5/11 (publicado e testável em 7/11) |
+| 4 | Orçamento: preço de cada item (o gestor vê a margem), previsão e pagamento, prévia em PDF; "Enviar orçamento" congela a cópia com SHA-256; envio do PDF pelo WhatsApp, resumo e link para o cliente responder sem login; aceite de todos ou de parte dos itens (mensagem com print, presencial, assinatura, link ou alçada da Izi, acima dela só o gestor), autorização da peça não original, recusa com motivo e valor do diagnóstico; adendos depois do aceite | Pronto |
+| 5 e 6 | Execução, conferência, entrega e PDFs | Em andamento |
 | 7 a 9 | Importação dos artefatos, Financeiro (artefato + sistema em Node juntos) | Depois do piloto |
 
 ## Rodar no computador

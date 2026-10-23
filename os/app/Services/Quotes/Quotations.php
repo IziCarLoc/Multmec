@@ -12,9 +12,11 @@ use App\Models\QuoteSend;
 use App\Models\ServiceOrder;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Budgets\Budgets;
 use App\Support\Phone;
 use Carbon\CarbonImmutable;
 use DomainException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -35,7 +37,7 @@ final class Quotations
     {
         $this->assertCanQuote($order, $by);
 
-        $items = $order->items()->whereIn('id', $itemIds)->get()->filter(fn (OrderItem $i) => $i->toQuote());
+        $items = $order->items()->whereIn('id', $itemIds)->get()->filter(fn (OrderItem $i) => $i->toQuote() && ! $i->isFrozen());
         $suppliers = Supplier::query()->active()->sellsParts()->whereIn('id', $supplierIds)->get();
 
         if ($items->isEmpty()) {
@@ -208,11 +210,11 @@ final class Quotations
      *
      * @return list<array{label: string, tab: string, field: ?string}>
      */
-    public function missing(ServiceOrder $order): array
+    public function missing(ServiceOrder $order, ?Collection $items = null): array
     {
         $missing = [];
 
-        foreach ($order->items()->get() as $item) {
+        foreach ($items ?? $order->items()->get() as $item) {
             if ($item->toQuote() && ($item->supplier_id === null || $item->cost_cents === null)) {
                 $missing[] = ['label' => 'Vencedor da cotação: '.$item->description, 'tab' => 'cotacao', 'field' => 'cotar-'.$item->id];
             }
@@ -231,8 +233,10 @@ final class Quotations
             throw new DomainException('A cotação é feita pelo atendimento.');
         }
 
-        if (! in_array($order->stage, [Stage::EmDiagnostico, Stage::AguardandoCotacao], true)) {
-            throw new DomainException('A cotação é feita antes do orçamento (etapas Em diagnóstico e Aguardando cotação).');
+        $stages = [Stage::EmDiagnostico, Stage::AguardandoCotacao, ...Budgets::ADDENDUM_STAGES];
+
+        if (! in_array($order->stage, $stages, true)) {
+            throw new DomainException('A cotação é feita na montagem do orçamento (ou de um adendo, depois do aceite).');
         }
     }
 }

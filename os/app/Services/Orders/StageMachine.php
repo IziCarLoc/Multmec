@@ -6,6 +6,7 @@ use App\Enums\Stage;
 use App\Models\ServiceOrder;
 use App\Models\StageTransition;
 use App\Models\User;
+use App\Services\Budgets\Budgets;
 use App\Services\Inspections\TechnicalChecklist;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +29,8 @@ final class StageMachine
     public const FORWARD = [
         'aberta' => ['em_vistoria' => 'atendimento'],
         'em_vistoria' => ['em_diagnostico' => 'atendimento|oficina'],
-        'em_diagnostico' => ['aguardando_cotacao' => 'oficina', 'aguardando_aprovacao' => 'oficina'],
+        // O mecânico sempre manda para o orçamento: o preço (e a cotação, se houver peça) é do atendimento.
+        'em_diagnostico' => ['aguardando_cotacao' => 'oficina'],
         'aguardando_cotacao' => ['aguardando_aprovacao' => 'atendimento'],
         'aguardando_aprovacao' => ['aprovada' => 'atendimento', 'recusada' => 'atendimento'],
         'aprovada' => ['aguardando_pecas' => 'atendimento|oficina', 'em_execucao' => 'oficina'],
@@ -43,9 +45,8 @@ final class StageMachine
     public const ACTIONS = [
         'aberta>em_vistoria' => 'Iniciar vistoria',
         'em_vistoria>em_diagnostico' => 'Concluir vistoria',
-        'em_diagnostico>aguardando_cotacao' => 'Enviar para cotação',
-        'em_diagnostico>aguardando_aprovacao' => 'Enviar para orçamento (sem peças a cotar)',
-        'aguardando_cotacao>aguardando_aprovacao' => 'Cotação pronta: enviar orçamento',
+        'em_diagnostico>aguardando_cotacao' => 'Enviar para o orçamento',
+        'aguardando_cotacao>aguardando_aprovacao' => 'Enviar orçamento ao cliente',
         'aguardando_aprovacao>aprovada' => 'Registrar aceite',
         'aguardando_aprovacao>recusada' => 'Registrar recusa',
         'aprovada>aguardando_pecas' => 'Aguardar peças',
@@ -67,22 +68,12 @@ final class StageMachine
      */
     public function targetsFor(ServiceOrder $order, User $user): array
     {
-        $targets = collect(self::FORWARD[$order->stage->value] ?? [])
+        return collect(self::FORWARD[$order->stage->value] ?? [])
             ->filter(fn (string $ability) => $this->can($user, $ability))
             ->keys()
-            ->map(fn (string $to) => Stage::from($to));
-
-        // No diagnóstico só aparece o caminho que vale: com peça a cotar (ou sem item ainda) vai para a
-        // cotação; só serviço, peça do cliente ou do estoque vai direto para o orçamento.
-        if ($order->stage === Stage::EmDiagnostico) {
-            $items = $order->items()->get();
-            $skip = $items->isNotEmpty() && $items->doesntContain(fn ($item) => $item->toQuote())
-                ? Stage::AguardandoCotacao
-                : Stage::AguardandoAprovacao;
-            $targets = $targets->reject(fn (Stage $to) => $to === $skip);
-        }
-
-        return $targets->values()->all();
+            ->map(fn (string $to) => Stage::from($to))
+            ->values()
+            ->all();
     }
 
     public static function actionLabel(Stage $from, Stage $to): string
@@ -110,6 +101,25 @@ final class StageMachine
                 throw new DomainException('O seu perfil não faz este passo ("'.self::actionLabel($fresh->stage, $to).'").');
             }
 
+            $missing = $this->gate->missing($fresh, $to);
+
+            if ($missing !== []) {
+                throw new DomainException(StageGate::sentence($missing));
+            }
+        });
+    }
+
+    /**
+     * Resposta do cliente pelo link do orçamento (sem login): só aceite ou recusa do orçamento principal.
+     * A trilha fica sem usuário ("cliente, pelo link").
+     */
+    public function moveForCustomer(ServiceOrder $order, Stage $expectedFrom, Stage $to, ?string $reason = null): ServiceOrder
+    {
+        if ($expectedFrom !== Stage::AguardandoAprovacao || ! in_array($to, [Stage::Aprovada, Stage::Recusada], true)) {
+            throw new DomainException('Pelo link o cliente só aprova ou recusa o orçamento.');
+        }
+
+        return $this->transition($order, $expectedFrom, $to, null, $this->clean($reason), function (ServiceOrder $fresh) use ($to) {
             $missing = $this->gate->missing($fresh, $to);
 
             if ($missing !== []) {
@@ -177,7 +187,7 @@ final class StageMachine
     /**
      * @param  callable(ServiceOrder): void  $check
      */
-    private function transition(ServiceOrder $order, Stage $expectedFrom, Stage $to, User $by, ?string $reason, callable $check): ServiceOrder
+    private function transition(ServiceOrder $order, Stage $expectedFrom, Stage $to, ?User $by, ?string $reason, callable $check): ServiceOrder
     {
         return DB::transaction(function () use ($order, $expectedFrom, $to, $by, $reason, $check) {
             $fresh = ServiceOrder::query()->lockForUpdate()->findOrFail($order->id);
@@ -205,7 +215,7 @@ final class StageMachine
                 'service_order_id' => $fresh->id,
                 'from_stage' => $expectedFrom,
                 'to_stage' => $to,
-                'user_id' => $by->id,
+                'user_id' => $by?->id,
                 'reason' => $reason,
             ]);
 
@@ -214,8 +224,27 @@ final class StageMachine
                 app(TechnicalChecklist::class)->itemsFor($fresh);
             }
 
+            $this->budgetEffects($fresh, $expectedFrom, $to, $by);
+
             return $fresh;
         });
+    }
+
+    /**
+     * O orçamento acompanha a etapa: enviar congela; voltar para antes do orçamento cancela o que estava com o
+     * cliente (e os links); voltar para "Aguardando aprovação" faz o orçamento esperar resposta de novo.
+     */
+    private function budgetEffects(ServiceOrder $order, Stage $from, Stage $to, ?User $by): void
+    {
+        $beforeBudget = [Stage::Aberta, Stage::EmVistoria, Stage::EmDiagnostico, Stage::AguardandoCotacao];
+
+        if ($to === Stage::AguardandoAprovacao && $from === Stage::AguardandoCotacao && $by) {
+            app(Budgets::class)->freeze($order, $by);
+        } elseif ($to === Stage::AguardandoAprovacao) {
+            app(Budgets::class)->awaitAgain($order);
+        } elseif (in_array($to, $beforeBudget, true) && ! in_array($from, $beforeBudget, true)) {
+            app(Budgets::class)->reopen($order);
+        }
     }
 
     /** "A Giovana já moveu esta OS para Em diagnóstico (14:32)." */

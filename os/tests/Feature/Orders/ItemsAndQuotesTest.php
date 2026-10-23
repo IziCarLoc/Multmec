@@ -50,7 +50,7 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertTrue($item->requires_photos);
 
         $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('Custo, origem e fornecedor são lançados pelo atendimento.');
+        $this->expectExceptionMessage('Custo, preço, origem e fornecedor são lançados pelo atendimento.');
         app(OrderItems::class)->update($item, ['cost_cents' => 5000], $robson);
     }
 
@@ -67,14 +67,14 @@ class ItemsAndQuotesTest extends TestCase
             $items->update($part, ['quantity' => '2'], $robson);
             $this->fail('Na cotação o mecânico não muda o item.');
         } catch (DomainException $e) {
-            $this->assertStringContainsString('quem corrige os itens é o atendimento', $e->getMessage());
+            $this->assertStringContainsString('No orçamento, quem corrige os itens é o atendimento', $e->getMessage());
         }
 
         $this->assertSame('2.00', $items->update($part, ['quantity' => '2'], $giovana)->quantity);
 
         $budget = $this->order(Stage::AguardandoAprovacao);
         $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('vira adendo');
+        $this->expectExceptionMessage('O orçamento está com o cliente. Item novo entra depois do aceite, como adendo');
         $items->add($budget, OrderItem::KIND_SERVICE, ['description' => 'Alinhamento', 'hours' => '1'], $giovana);
     }
 
@@ -130,7 +130,7 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertSame(['description' => 'Troca de pastilhas dianteiras', 'count' => 3, 'hours' => 1.5], $frequent->first());
     }
 
-    public function test_diagnostico_pede_horas_e_mostra_so_o_caminho_certo(): void
+    public function test_diagnostico_pede_horas_e_sempre_vai_para_o_orcamento(): void
     {
         $order = $this->order(Stage::EmDiagnostico, ['diagnosis' => 'Pastilhas no fim e disco riscado']);
         $robson = User::factory()->mecanico()->create();
@@ -140,16 +140,14 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertContains('Ao menos uma peça ou serviço', $this->labels($gate->missing($order, Stage::AguardandoCotacao)));
         $this->assertSame([Stage::AguardandoCotacao], $machine->targetsFor($order, $robson));
 
+        // Só serviço (nada a cotar): o mecânico também manda para o orçamento, que o atendimento monta.
         $service = $this->item($order, OrderItem::KIND_SERVICE, ['description' => 'Troca de pastilhas', 'hours' => null]);
-        $this->assertSame([Stage::AguardandoAprovacao], $machine->targetsFor($order, $robson));
-        $this->assertSame(['Horas estimadas: Troca de pastilhas'], $this->labels($gate->missing($order, Stage::AguardandoAprovacao)));
+        $this->assertSame([Stage::AguardandoCotacao], $machine->targetsFor($order, $robson));
+        $this->assertSame(['Horas estimadas: Troca de pastilhas'], $this->labels($gate->missing($order, Stage::AguardandoCotacao)));
 
         $service->update(['hours' => 1.5]);
-        $this->item($order, OrderItem::KIND_PART, ['description' => 'Jogo de pastilhas']);
-
-        $this->assertSame([Stage::AguardandoCotacao], $machine->targetsFor($order, $robson));
-        $this->assertSame(['Há peça para cotar: use "Enviar para cotação"'], $this->labels($gate->missing($order, Stage::AguardandoAprovacao)));
         $this->assertSame(Stage::AguardandoCotacao, $machine->move($order, Stage::EmDiagnostico, Stage::AguardandoCotacao, $robson)->stage);
+        $this->assertSame('Em orçamento', Stage::AguardandoCotacao->label());
     }
 
     public function test_mensagem_da_cotacao_nunca_leva_dados_do_cliente(): void
@@ -247,8 +245,14 @@ class ItemsAndQuotesTest extends TestCase
         $this->assertSame(1, QuoteResponse::query()->where('os_item_id', $part->id)->where('is_winner', true)->count());
         $this->assertSame([$a->id, 32000, PartOrigin::Original], [$part->fresh()->supplier_id, $part->fresh()->cost_cents, $part->fresh()->origin]);
 
+        // Cotação pronta: falta só o orçamento (preço, previsão e pagamento).
+        $this->assertSame(['Preço: Amortecedor dianteiro', 'Previsão de entrega', 'Forma de pagamento'], $this->labels(app(StageGate::class)->missing($order, Stage::AguardandoAprovacao)));
+        app(OrderItems::class)->update($part->fresh(), ['price_cents' => 45000], $giovana);
+        $order->update(['expected_date' => now()->addDays(2)->toDateString(), 'payment_terms' => 'Pix na retirada']);
+
         $this->assertSame([], app(StageGate::class)->missing($order, Stage::AguardandoAprovacao));
         $this->assertSame(Stage::AguardandoAprovacao, app(StageMachine::class)->move($order, Stage::AguardandoCotacao, Stage::AguardandoAprovacao, $giovana)->stage);
+        $this->assertSame(90000, $order->budgets()->firstOrFail()->total_cents);
     }
 
     public function test_video_sem_hash_diferente_grande_ou_que_nao_e_video_e_recusado(): void
