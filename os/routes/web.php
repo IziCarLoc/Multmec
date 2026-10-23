@@ -61,6 +61,7 @@ Route::middleware(['auth', 'auth.session'])->group(function () {
         Route::livewire('/ajustes/usuarios', 'pages::auth.settings.users')->name('settings.users');
         Route::livewire('/ajustes/saude', 'pages::auth.settings.health')->name('settings.health');
         Route::livewire('/ajustes/frota-izi', 'pages::auth.settings.izi-fleet')->name('settings.izi-fleet');
+        Route::livewire('/ajustes/checklists', 'pages::auth.settings.checklists')->name('settings.checklists');
         // Teste da hospedagem: PDF com 30 fotos geradas na hora (memória e tempo do dompdf no servidor).
         Route::get('/ajustes/saude/pdf-de-teste', [HealthCheckController::class, 'pdf'])->name('settings.health.pdf');
     });
