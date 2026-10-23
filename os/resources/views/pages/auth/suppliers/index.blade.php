@@ -107,7 +107,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
             'kind' => $this->supplierKind,
             'whatsapp' => Phone::digits($this->whatsapp) ?: null,
             'email' => trim($this->email) ?: null,
-            'document' => Document::digits($this->document) ?: null,
+            'document' => Document::clean($this->document) ?: null,
             'lines' => trim($this->lines) ?: null,
             'lead_time' => trim($this->leadTime) ?: null,
             'payment_terms' => trim($this->paymentTerms) ?: null,
@@ -190,7 +190,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
                 </div>
                 <div>
                     <label class="{{ $labelClass }}" for="document">CNPJ ou CPF</label>
-                    <x-document-input id="document" model="document" />
+                    <x-document-input id="document" model="document" letters />
                     @error('document') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
                 <div>

@@ -17,13 +17,16 @@ final class PurchaseSettings
 {
     public const MIN_REASON = 'Explique em pelo menos 10 letras (ex.: "confirmei por telefone com a Maria" ou "nota chega amanhã").';
 
-    /** O que o gestor pode mudar em Ajustes > Conferência de compras: chave => [rótulo, mínimo, máximo]. */
+    /**
+     * O que o gestor pode mudar em Ajustes > Conferência de compras: chave => [rótulo, mínimo, máximo]. Chave terminada
+     * em `_cents` é dinheiro (a tela mostra em reais; mínimo e máximo em centavos).
+     */
     public const EDITABLE = [
         'allocation_days' => ['Dias para dar destino às peças de uma nota', 1, 365],
-        'tolerance_cents' => ['Diferença aceita no valor, em centavos', 0, 1000],
+        'tolerance_cents' => ['Diferença aceita no valor (R$)', 0, 1000],
         'price_alert_pct' => ['Alerta de preço acima da mediana (%)', 1, 500],
         'invoice_without_slip_days' => ['Avisar parcela sem boleto com quantos dias de antecedência', 0, 60],
-        'xml_check_cents' => ['Boleto a partir de (centavos) pede a consulta do gestor no portal quando o XML veio do atendimento', 0, 100_000_000],
+        'xml_check_cents' => ['Boleto a partir de (R$) pede a consulta do gestor no portal quando o XML veio do atendimento', 0, 100_000_000],
         'group_return_days' => ['Prazo para a empresa do grupo devolver o que a oficina pagou (dias)', 1, 365],
     ];
 

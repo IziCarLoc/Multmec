@@ -10,6 +10,7 @@ use App\Services\Finance\FinanceSummary;
 use App\Services\Finance\Installments;
 use App\Services\Finance\Month;
 use App\Services\Finance\Payables;
+use App\Services\Purchases\PaymentLock;
 use App\Support\Money;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -151,6 +152,13 @@ new #[Title('A pagar')] class extends Component
         return $this->payableId ? Payable::with('supplier')->find($this->payableId) : null;
     }
 
+    /** Selo da conferência de compras das contas que têm boleto em Financeiro > Compras (conta => veredito). */
+    #[Computed]
+    public function purchaseVerdicts(): array
+    {
+        return app(PaymentLock::class)->verdicts($this->payables);
+    }
+
     /** Valor de cada parcela como vai ser lançado. */
     #[Computed]
     public function installmentValues(): array
@@ -279,7 +287,7 @@ new #[Title('A pagar')] class extends Component
 
     private function refreshLists(): void
     {
-        unset($this->payables, $this->groups, $this->deadlines, $this->openTotal, $this->suppliers, $this->current);
+        unset($this->payables, $this->groups, $this->deadlines, $this->openTotal, $this->suppliers, $this->current, $this->purchaseVerdicts);
     }
 
     private function resetForm(): void
@@ -363,6 +371,9 @@ new #[Title('A pagar')] class extends Component
                                 <p class="font-semibold flex flex-wrap items-center gap-1">
                                     <span class="truncate">{{ $payable->supplier?->name ?? '(fornecedor removido)' }}</span>
                                     @if ($payable->installmentLabel()) <span class="{{ $pill }} bg-gray-100 dark:bg-gray-700">parcela {{ $payable->installmentLabel() }}</span> @endif
+                                    @if ($check = $this->purchaseVerdicts[$payable->id] ?? null)
+                                        <span @class([$pill, 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200' => $check['level'] === 'ruim', 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' => $check['level'] === 'atencao', 'bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200' => $check['level'] === 'ok', 'bg-gray-100 dark:bg-gray-700' => $check['level'] === 'neutro']) title="{{ $check['text'] }}" data-test="selo-compras-{{ $payable->id }}"><i class="fas fa-receipt mr-1"></i>{{ $check['short'] }}</span>
+                                    @endif
                                     @if ($payable->isPaid())
                                         <span class="{{ $pill }} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"><i class="fas fa-check mr-1"></i>pago {{ $payable->paid_on?->format('d/m/Y') }}</span>
                                     @elseif ($overdue)
@@ -400,6 +411,12 @@ new #[Title('A pagar')] class extends Component
                 <h2 class="font-display font-bold text-xl uppercase">{{ $current ? 'Boleto' : 'Novo boleto' }}</h2>
                 @if ($current?->installmentLabel()) <span class="{{ $pill }} bg-gray-100 dark:bg-gray-700">parcela {{ $current->installmentLabel() }}</span> @endif
             </div>
+            @if ($current && ($check = $this->purchaseVerdicts[$current->id] ?? null))
+                <p class="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-2 text-sm" data-test="conferencia-compras">
+                    <i class="fas fa-receipt mr-1"></i>Boleto da conferência de compras: {{ $check['text'] }}.
+                    <a href="{{ route('finance.purchases.slips', ['boleto' => $check['slip_id']]) }}" wire:navigate class="underline">Abrir em Compras</a>
+                </p>
+            @endif
             @error('form') <p class="text-sm text-red-600" data-test="erro-form">{{ $message }}</p> @enderror
 
             <div class="grid gap-3 sm:grid-cols-2">

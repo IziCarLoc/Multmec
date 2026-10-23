@@ -6,6 +6,7 @@ use App\Enums\SupplierKind;
 use App\Support\Phone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -63,6 +64,12 @@ class Supplier extends Model
     public function bankSlips(): HasMany
     {
         return $this->hasMany(BankSlip::class);
+    }
+
+    /** Quem conferiu (gestor). */
+    public function confirmer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by');
     }
 
     /** O gestor conferiu o CNPJ e o telefone (Compras > Fornecedores). */
