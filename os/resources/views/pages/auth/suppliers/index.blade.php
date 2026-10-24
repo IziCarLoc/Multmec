@@ -2,6 +2,7 @@
 
 use App\Enums\SupplierKind;
 use App\Models\AuditLog;
+use App\Models\Payable;
 use App\Models\Supplier;
 use App\Support\Document;
 use App\Support\Phone;
@@ -56,7 +57,31 @@ new #[Title('Fornecedores e prestadores')] class extends Component
             ->when($this->kind === 'pecas', fn ($q) => $q->sellsParts())
             ->when($this->kind === 'servico', fn ($q) => $q->providesService())
             ->orderByDesc('active')->orderBy('name')
-            ->get();
+            ->get()
+            // Como no artefato: quem tem mais boleto em aberto primeiro (ordenação estável: o resto segue pelo nome).
+            ->sortByDesc(fn (Supplier $s) => $s->active ? ($this->payableStats[$s->id]['open'] ?? 0) : -1)
+            ->values();
+    }
+
+    /**
+     * Boletos do "A pagar" por fornecedor, lidos numa consulta só (como a aba Fornecedores do artefato): quanto está
+     * em aberto, quantos em aberto, quantos no total e quantos vencidos.
+     *
+     * @return array<int, array{open: int, open_count: int, count: int, overdue: int}>
+     */
+    #[Computed]
+    public function payableStats(): array
+    {
+        $open = Payable::STATUS_OPEN;
+
+        return Payable::query()
+            ->selectRaw('supplier_id, count(*) as total_count')
+            ->selectRaw('sum(case when status = ? then amount_cents else 0 end) as open_cents', [$open])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as open_count', [$open])
+            ->selectRaw('sum(case when status = ? and due_date < ? then 1 else 0 end) as overdue_count', [$open, now()->toDateString()])
+            ->groupBy('supplier_id')->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->supplier_id => ['open' => (int) $r->open_cents, 'open_count' => (int) $r->open_count, 'count' => (int) $r->total_count, 'overdue' => (int) $r->overdue_count]])
+            ->all();
     }
 
     public function create(): void
@@ -155,6 +180,15 @@ new #[Title('Fornecedores e prestadores')] class extends Component
                     <p class="text-sm text-gray-500 dark:text-gray-400 truncate">{{ $supplier->kind->label() }}{{ $supplier->lines ? ' · '.$supplier->lines : '' }}</p>
                 </div>
                 <span class="text-sm text-gray-500">{{ $supplier->whatsappFormatted() }}</span>
+                @if ($stats = $this->payableStats[$supplier->id] ?? null)
+                    <div class="basis-full sm:basis-auto sm:text-right text-sm" data-test="boletos-fornecedor-{{ $supplier->id }}">
+                        <p class="flex flex-wrap items-center sm:justify-end gap-1">
+                            @if ($stats['overdue'] > 0) <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300">{{ $stats['overdue'] }} vencido{{ $stats['overdue'] > 1 ? 's' : '' }}</span> @endif
+                            <span class="font-display font-bold text-lg">{{ $money($stats['open']) }}</span>
+                        </p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $stats['open_count'] }} em aberto · {{ $stats['count'] }} no total</p>
+                    </div>
+                @endif
             </button>
         @empty
             <p class="p-6 text-center text-gray-600 dark:text-gray-300">Nenhum cadastro ainda.</p>
@@ -215,7 +249,10 @@ new #[Title('Fornecedores e prestadores')] class extends Component
                 </div>
                 <label class="flex items-center gap-3 min-h-11"><input type="checkbox" wire:model="active" class="size-5 rounded border-gray-300 text-brand-600"> Ativo</label>
             </div>
-            <div class="flex justify-end gap-2">
+            <div class="flex flex-wrap justify-end gap-2">
+                @if ($supplierId && isset($this->payableStats[$supplierId]))
+                    <a href="{{ route('finance.payables', ['fornecedor' => $supplierId, 'situacao' => 'todos', 'mes' => 'todos']) }}" wire:navigate class="{{ $btnSecondary }} sm:mr-auto" data-test="ver-boletos"><i class="fas fa-file-invoice-dollar"></i> Ver os boletos</a>
+                @endif
                 <button type="button" wire:click="close" class="{{ $btnSecondary }}">Cancelar</button>
                 <button type="submit" class="{{ $btnPrimary }}" data-test="salvar-fornecedor"><i class="fas fa-check"></i> Salvar</button>
             </div>

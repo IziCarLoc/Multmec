@@ -6,6 +6,7 @@
         auth()->user()?->can('gestor') ? ['finance.goal', 'Meta do mês', 'fa-bullseye'] : null,
         ['finance.receivables', 'A receber', 'fa-hand-holding-dollar'],
         ['finance.payables', 'A pagar', 'fa-file-invoice-dollar'],
+        ['finance.payables.monthly', 'Boletos por mês', 'fa-calendar-days'],
         ['finance.recurring', 'Contas fixas', 'fa-repeat'],
         ['finance.credit', 'Crédito', 'fa-handshake'],
         ['finance.purchases', 'Compras', 'fa-receipt', 'finance.purchases*'],
