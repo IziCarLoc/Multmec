@@ -94,7 +94,7 @@ class ArtifactImportTest extends TestCase
         $this->import()->apply($this->export(), $this->gestor);
 
         $supplier = Supplier::query()->where('name', 'Auto Peças Teste')->firstOrFail();
-        $this->assertSame(['11222333000181', '28 dias', 'Contato: Junior'], [$supplier->document, $supplier->payment_terms, $supplier->notes]);
+        $this->assertSame(['11222333000181', '28 dias', 'Junior', null], [$supplier->document, $supplier->payment_terms, $supplier->contact_name, $supplier->notes]);
 
         [$first, $second] = Payable::query()->where('document_number', '4512')->orderBy('installment_number')->get()->all();
         $this->assertSame([15050, '1/2', '2/2'], [$first->amount_cents, $first->installmentLabel(), $second->installmentLabel()]);

@@ -4,8 +4,10 @@ use App\Enums\SupplierKind;
 use App\Models\AuditLog;
 use App\Models\Payable;
 use App\Models\Supplier;
+use App\Services\Registry\SupplierDirectory;
 use App\Support\Document;
 use App\Support\Phone;
+use App\Livewire\Concerns\RunsDomainActions;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -14,6 +16,8 @@ use Livewire\Component;
 
 new #[Title('Fornecedores e prestadores')] class extends Component
 {
+    use RunsDomainActions;
+
     #[Url(as: 'busca', except: '')]
     public string $search = '';
 
@@ -31,6 +35,9 @@ new #[Title('Fornecedores e prestadores')] class extends Component
 
     public string $whatsapp = '';
 
+    /** Pessoa com quem falar no fornecedor. */
+    public string $contactName = '';
+
     public string $email = '';
 
     public string $document = '';
@@ -46,6 +53,8 @@ new #[Title('Fornecedores e prestadores')] class extends Component
     public string $notes = '';
 
     public bool $active = true;
+
+    public bool $confirmDelete = false;
 
     #[Computed]
     public function suppliers()
@@ -87,10 +96,27 @@ new #[Title('Fornecedores e prestadores')] class extends Component
     public function create(): void
     {
         $this->resetValidation();
-        $this->reset('supplierId', 'name', 'whatsapp', 'email', 'document', 'lines', 'leadTime', 'paymentTerms', 'pixKey', 'notes');
+        $this->reset('supplierId', 'name', 'whatsapp', 'contactName', 'email', 'document', 'lines', 'leadTime', 'paymentTerms', 'pixKey', 'notes');
         $this->supplierKind = $this->kind === 'servico' ? SupplierKind::Servico->value : SupplierKind::Pecas->value;
         $this->active = true;
+        $this->confirmDelete = false;
         $this->editing = true;
+    }
+
+    /** Por que o fornecedor aberto não pode ser excluído (null = pode). */
+    #[Computed]
+    public function deleteBlocker(): ?string
+    {
+        return $this->supplierId ? app(SupplierDirectory::class)->deleteBlocker(Supplier::findOrFail($this->supplierId)) : null;
+    }
+
+    public function delete(SupplierDirectory $directory): void
+    {
+        if ($this->attempt(fn () => $directory->delete(Supplier::findOrFail($this->supplierId)))) {
+            $this->editing = false;
+            unset($this->suppliers, $this->payableStats);
+            $this->dispatch('toast', message: 'Fornecedor excluído.', type: 'success');
+        }
     }
 
     public function edit(int $id): void
@@ -101,6 +127,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
         $this->name = $supplier->name;
         $this->supplierKind = $supplier->kind->value;
         $this->whatsapp = $supplier->whatsappFormatted();
+        $this->contactName = (string) $supplier->contact_name;
         $this->email = (string) $supplier->email;
         $this->document = $supplier->document ? Document::format($supplier->document) : '';
         $this->lines = (string) $supplier->lines;
@@ -109,6 +136,8 @@ new #[Title('Fornecedores e prestadores')] class extends Component
         $this->pixKey = (string) $supplier->pix_key;
         $this->notes = (string) $supplier->notes;
         $this->active = $supplier->active;
+        $this->confirmDelete = false;
+        unset($this->deleteBlocker);
         $this->editing = true;
     }
 
@@ -131,6 +160,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
             'name' => trim($this->name),
             'kind' => $this->supplierKind,
             'whatsapp' => Phone::digits($this->whatsapp) ?: null,
+            'contact_name' => mb_substr(trim($this->contactName), 0, 120) ?: null,
             'email' => trim($this->email) ?: null,
             'document' => Document::clean($this->document) ?: null,
             'lines' => trim($this->lines) ?: null,
@@ -158,7 +188,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
         </h1>
         <button type="button" wire:click="create" class="{{ $btnPrimary }} ml-auto" data-test="novo-fornecedor"><i class="fas fa-plus"></i> Novo</button>
     </div>
-    <p class="text-sm text-gray-600 dark:text-gray-300">Quem vende peça (vai na cotação) e os prestadores externos de serviço, como o eletricista e o ar-condicionado.</p>
+    <p class="text-sm text-gray-600 dark:text-gray-300">Quem vende peça (vai na cotação) e os prestadores externos de serviço, como o eletricista e o ar-condicionado. Toque num fornecedor para editar o cadastro; o valor mostra só os boletos em aberto.</p>
 
     <div class="flex flex-wrap gap-3">
         <div class="relative flex-1 min-w-[14rem]">
@@ -177,7 +207,7 @@ new #[Title('Fornecedores e prestadores')] class extends Component
             <button type="button" wire:click="edit({{ $supplier->id }})" class="w-full text-left p-4 flex flex-wrap items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/40" wire:key="s-{{ $supplier->id }}">
                 <div class="min-w-0 flex-1">
                     <p class="font-semibold truncate">{{ $supplier->name }} @unless ($supplier->active) <span class="text-xs text-red-600">(inativo)</span> @endunless</p>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 truncate">{{ $supplier->kind->label() }}{{ $supplier->lines ? ' · '.$supplier->lines : '' }}</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 truncate">{{ $supplier->kind->label() }}{{ $supplier->lines ? ' · '.$supplier->lines : '' }}{{ $supplier->contact_name ? ' · '.$supplier->contact_name : '' }}</p>
                 </div>
                 <span class="text-sm text-gray-500">{{ $supplier->whatsappFormatted() }}</span>
                 @if ($stats = $this->payableStats[$supplier->id] ?? null)
@@ -218,6 +248,10 @@ new #[Title('Fornecedores e prestadores')] class extends Component
                     @error('whatsapp') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
                 <div>
+                    <label class="{{ $labelClass }}" for="contactName">Contato</label>
+                    <input id="contactName" type="text" wire:model="contactName" maxlength="120" placeholder="Com quem falar" class="{{ $inputClass }}" data-test="fornecedor-contato">
+                </div>
+                <div>
                     <label class="{{ $labelClass }}" for="email">E-mail</label>
                     <input id="email" type="email" wire:model="email" class="{{ $inputClass }}">
                     @error('email') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
@@ -249,7 +283,19 @@ new #[Title('Fornecedores e prestadores')] class extends Component
                 </div>
                 <label class="flex items-center gap-3 min-h-11"><input type="checkbox" wire:model="active" class="size-5 rounded border-gray-300 text-brand-600"> Ativo</label>
             </div>
+            @if ($confirmDelete)
+                <div class="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/30 dark:border-red-800 p-3 space-y-2">
+                    <p class="text-sm text-red-800 dark:text-red-200">Excluir este fornecedor?</p>
+                    <div class="flex flex-wrap gap-2 justify-end">
+                        <button type="button" wire:click="$set('confirmDelete', false)" class="{{ $btnSecondary }}">Cancelar</button>
+                        <button type="button" wire:click="delete" class="{{ $btnPrimary }} !bg-red-600 hover:!bg-red-700" data-test="confirmar-excluir-fornecedor">Sim, excluir</button>
+                    </div>
+                </div>
+            @endif
             <div class="flex flex-wrap justify-end gap-2">
+                @if ($supplierId && $this->deleteBlocker === null)
+                    <button type="button" wire:click="$set('confirmDelete', true)" class="{{ $btnSecondary }} sm:mr-auto text-red-700" data-test="excluir-fornecedor">Excluir</button>
+                @endif
                 @if ($supplierId && isset($this->payableStats[$supplierId]))
                     <a href="{{ route('finance.payables', ['fornecedor' => $supplierId, 'situacao' => 'todos', 'mes' => 'todos']) }}" wire:navigate class="{{ $btnSecondary }} sm:mr-auto" data-test="ver-boletos"><i class="fas fa-file-invoice-dollar"></i> Ver os boletos</a>
                 @endif
