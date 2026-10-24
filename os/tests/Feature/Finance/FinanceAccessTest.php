@@ -25,6 +25,7 @@ class FinanceAccessTest extends TestCase
             'painel' => ['finance', 'pages::auth.finance.dashboard'],
             'a receber' => ['finance.receivables', 'pages::auth.finance.receivables'],
             'a pagar' => ['finance.payables', 'pages::auth.finance.payables'],
+            'boletos por mês' => ['finance.payables.monthly', 'pages::auth.finance.payables-monthly'],
             'inadimplentes' => ['finance.delinquents', 'pages::auth.finance.delinquents'],
             'prejuízos' => ['finance.losses', 'pages::auth.finance.losses'],
             'prestadores' => ['finance.providers', 'pages::auth.finance.providers'],

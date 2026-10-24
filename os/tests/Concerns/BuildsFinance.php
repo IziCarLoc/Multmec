@@ -66,7 +66,7 @@ trait BuildsFinance
     protected function payable(array $attributes = []): Payable
     {
         return Payable::create($attributes + [
-            'supplier_id' => $this->partsSupplier()->id,
+            'supplier_id' => $attributes['supplier_id'] ?? $this->partsSupplier()->id,
             'due_date' => CarbonImmutable::today()->addDays(5)->toDateString(),
             'amount_cents' => 25000,
             'status' => Payable::STATUS_OPEN,

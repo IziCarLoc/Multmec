@@ -40,6 +40,10 @@ new #[Title('A pagar')] class extends Component
     #[Url(as: 'prazo', except: '')]
     public string $window = '';
 
+    /** Abre a janela de um boleto (link dos Boletos por mês). */
+    #[Url(as: 'abrir', except: '')]
+    public string $openId = '';
+
     public bool $editing = false;
 
     public ?int $payableId = null;
@@ -60,6 +64,15 @@ new #[Title('A pagar')] class extends Component
     public array $dueDates = [];
 
     public bool $confirmDelete = false;
+
+    public function mount(): void
+    {
+        if (ctype_digit($this->openId) && Payable::query()->whereKey((int) $this->openId)->exists()) {
+            $this->edit((int) $this->openId);
+        }
+
+        $this->openId = '';
+    }
 
     protected function monthChanged(): void
     {
