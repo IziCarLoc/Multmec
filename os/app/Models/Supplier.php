@@ -19,6 +19,7 @@ class Supplier extends Model
         'name',
         'kind',
         'whatsapp',
+        'contact_name',
         'email',
         'document',
         'lines',

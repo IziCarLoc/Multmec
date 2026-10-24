@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Vehicle;
 use App\Services\Finance\Credit;
+use App\Services\Registry\CustomerDirectory;
 use App\Services\Registry\IziFleet;
 use App\Support\Document;
 use App\Support\Phone;
@@ -24,13 +25,15 @@ new #[Title('Clientes e veículos')] class extends Component
     #[Url(as: 'busca', except: '')]
     public string $search = '';
 
-    /** 'vehicle' ou 'customer' com o id em edição. */
+    /** 'vehicle' ou 'customer' com o id em edição, ou 'new-customer'. */
     public ?string $editing = null;
 
     public ?int $editId = null;
 
     /** @var array<string, mixed> */
     public array $form = [];
+
+    public bool $confirmDelete = false;
 
     #[Computed]
     public function vehicles()
@@ -46,6 +49,34 @@ new #[Title('Clientes e veículos')] class extends Component
         return Customer::query()->withCount(['vehicles', 'serviceOrders'])
             ->when(trim($this->search) !== '', fn ($q) => $q->search($this->search))
             ->orderByDesc('is_izi_fleet')->orderBy('name')->limit(100)->get();
+    }
+
+    /** Por que o cliente aberto não pode ser excluído (null = pode). */
+    #[Computed]
+    public function deleteBlocker(): ?string
+    {
+        return $this->editing === 'customer' ? app(CustomerDirectory::class)->deleteBlocker(Customer::findOrFail($this->editId)) : null;
+    }
+
+    /** "Novo cliente" (como no artefato): cadastro próprio, com o carro se tiver a placa. */
+    public function createCustomer(): void
+    {
+        $this->resetValidation();
+        $this->tab = 'clientes';
+        $this->editing = 'new-customer';
+        $this->editId = null;
+        $this->form = ['name' => '', 'whatsapp' => '', 'document' => '', 'email' => '', 'address' => '', 'notes' => '', 'plate' => '', 'brand_model' => '', 'year' => '', 'color' => ''];
+    }
+
+    public function deleteCustomer(CustomerDirectory $directory): void
+    {
+        $customer = Customer::findOrFail($this->editId);
+
+        if ($this->attempt(fn () => $directory->delete($customer))) {
+            $this->editing = null;
+            unset($this->vehicles, $this->customers);
+            $this->dispatch('toast', message: 'Cliente excluído.', type: 'success');
+        }
     }
 
     public function editVehicle(int $id): void
@@ -73,6 +104,8 @@ new #[Title('Clientes e veículos')] class extends Component
         $this->resetValidation();
         $this->editing = 'customer';
         $this->editId = $id;
+        $this->confirmDelete = false;
+        unset($this->deleteBlocker);
         $this->form = [
             'name' => $customer->name,
             'whatsapp' => $customer->whatsappFormatted(),
@@ -96,6 +129,19 @@ new #[Title('Clientes e veículos')] class extends Component
     public function save(): void
     {
         $phone = fn ($attr, $value, $fail) => filled($value) && ! Phone::isValid($value) ? $fail('Telefone com DDD, por exemplo (55) 99999-9999.') : null;
+
+        if ($this->editing === 'new-customer') {
+            if (! $this->attempt(fn () => app(CustomerDirectory::class)->register($this->form), 'form')) {
+                return;
+            }
+
+            $this->editing = null;
+            $this->search = '';
+            unset($this->vehicles, $this->customers);
+            $this->dispatch('toast', message: 'Cliente cadastrado.', type: 'success');
+
+            return;
+        }
 
         if ($this->editing === 'vehicle') {
             $this->validate(['form.investor_whatsapp' => ['nullable', $phone], 'form.chassis' => 'nullable|max:17'], ['form.chassis.max' => 'O chassi tem 17 caracteres.']);
@@ -147,10 +193,13 @@ new #[Title('Clientes e veículos')] class extends Component
 ?>
 
 <div class="space-y-4">
-    <h1 class="font-display font-extrabold text-3xl uppercase tracking-wide flex items-center gap-2">
-        <span class="w-1 h-6 rounded bg-brand-600"></span>Clientes e veículos
-    </h1>
-    <p class="text-sm text-gray-600 dark:text-gray-300">Carros e clientes entram sozinhos ao abrir a OS. Aqui se corrige e completa o cadastro.
+    <div class="flex flex-wrap items-center gap-3">
+        <h1 class="font-display font-extrabold text-3xl uppercase tracking-wide flex items-center gap-2">
+            <span class="w-1 h-6 rounded bg-brand-600"></span>Clientes e veículos
+        </h1>
+        <button type="button" wire:click="createCustomer" class="{{ $btnPrimary }} ml-auto" data-test="novo-cliente"><i class="fas fa-plus"></i> Novo cliente</button>
+    </div>
+    <p class="text-sm text-gray-600 dark:text-gray-300">Carros e clientes entram sozinhos ao abrir a OS; "Novo cliente" cadastra sem OS. Toque num cadastro para corrigir ou completar.
         @can('gestor') A frota da Izi vem do Gestão em <a href="{{ route('settings.izi-fleet') }}" wire:navigate class="text-brand-600 hover:underline">Ajustes › Frota Izi</a>. @endcan
     </p>
 
@@ -249,9 +298,47 @@ new #[Title('Clientes e veículos')] class extends Component
                     @error('form.credit_limit') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                 </fieldset>
             </div>
-            <div class="flex justify-end gap-2">
+            @if ($confirmDelete)
+                <div class="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/30 dark:border-red-800 p-3 space-y-2">
+                    <p class="text-sm text-red-800 dark:text-red-200">Excluir este cliente? Os carros dele continuam cadastrados, sem cliente.</p>
+                    <div class="flex flex-wrap gap-2 justify-end">
+                        <button type="button" wire:click="$set('confirmDelete', false)" class="{{ $btnSecondary }}">Cancelar</button>
+                        <button type="button" wire:click="deleteCustomer" class="{{ $btnPrimary }} !bg-red-600 hover:!bg-red-700" data-test="confirmar-excluir-cliente">Sim, excluir</button>
+                    </div>
+                </div>
+            @endif
+            <div class="flex flex-wrap justify-end gap-2">
+                @if ($this->deleteBlocker === null)
+                    <button type="button" wire:click="$set('confirmDelete', true)" class="{{ $btnSecondary }} sm:mr-auto text-red-700" data-test="excluir-cliente">Excluir</button>
+                @endif
                 <button type="button" wire:click="close" class="{{ $btnSecondary }}">Cancelar</button>
                 <button type="submit" class="{{ $btnPrimary }}"><i class="fas fa-check"></i> Salvar</button>
+            </div>
+        </x-modal>
+    @elseif ($editing === 'new-customer')
+        <x-modal close="close" form="save" size="lg" scroll data-test="janela-novo-cliente">
+            <h2 class="font-display font-bold text-xl uppercase">Novo cliente</h2>
+            @error('form') <p class="text-sm text-red-600" data-test="erro-form">{{ $message }}</p> @enderror
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div class="sm:col-span-2"><label class="{{ $labelClass }}" for="n-nome">Nome</label><input id="n-nome" type="text" wire:model="form.name" maxlength="120" class="{{ $inputClass }}" data-test="novo-nome"></div>
+                <div><label class="{{ $labelClass }}" for="n-whats">WhatsApp</label><input id="n-whats" type="tel" wire:model="form.whatsapp" placeholder="(55) 99999-9999" class="{{ $inputClass }}" data-test="novo-whatsapp"></div>
+                <div><label class="{{ $labelClass }}">CPF ou CNPJ</label><x-document-input model="form.document" /></div>
+                <div class="sm:col-span-2"><label class="{{ $labelClass }}" for="n-end">Endereço</label><input id="n-end" type="text" wire:model="form.address" maxlength="255" placeholder="Rua, número, bairro…" class="{{ $inputClass }}"></div>
+                <fieldset class="sm:col-span-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                    <legend class="px-1 text-sm font-semibold">Carro (opcional)</legend>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div><label class="{{ $labelClass }}" for="n-placa">Placa</label><input id="n-placa" type="text" wire:model="form.plate" maxlength="8" placeholder="ABC1D23" class="{{ $inputClass }} uppercase font-mono" data-test="novo-placa"></div>
+                        <div><label class="{{ $labelClass }}" for="n-modelo">Marca e modelo</label><input id="n-modelo" type="text" wire:model="form.brand_model" maxlength="80" class="{{ $inputClass }}"></div>
+                        <div><label class="{{ $labelClass }}" for="n-ano">Ano</label><input id="n-ano" type="text" wire:model="form.year" maxlength="9" class="{{ $inputClass }}"></div>
+                        <div><label class="{{ $labelClass }}" for="n-cor">Cor</label><input id="n-cor" type="text" wire:model="form.color" maxlength="30" class="{{ $inputClass }}"></div>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">Placa já cadastrada passa para este cliente.</p>
+                </fieldset>
+                <div class="sm:col-span-2"><label class="{{ $labelClass }}" for="n-obs">Observações</label><textarea id="n-obs" wire:model="form.notes" rows="2" class="{{ $inputClass }}"></textarea></div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" wire:click="close" class="{{ $btnSecondary }}">Cancelar</button>
+                <button type="submit" class="{{ $btnPrimary }}" data-test="salvar-novo-cliente"><i class="fas fa-check"></i> Salvar</button>
             </div>
         </x-modal>
     @endif

@@ -212,7 +212,6 @@ final class ArtifactImport
         $document = Document::clean((string) ($doc['cnpj'] ?? $doc['documento'] ?? ''));
         $phone = Phone::digits((string) ($doc['telefone'] ?? ''));
         $notes = collect([
-            filled($doc['contato'] ?? null) ? 'Contato: '.$this->clean($doc['contato']) : null,
             $document !== '' && ! Document::isValid($document) ? 'CNPJ no artefato: '.$doc['cnpj'] : null,
             $phone !== '' && ! Phone::isValid($phone) ? 'Telefone no artefato: '.$doc['telefone'] : null,
             $this->clean($doc['obs'] ?? '') ?: null,
@@ -224,6 +223,7 @@ final class ArtifactImport
         $fields = [
             'document' => Document::isValid($document) ? $document : null,
             'whatsapp' => Phone::isValid($phone) ? $phone : null,
+            'contact_name' => Str::limit($this->clean($doc['contato'] ?? ''), 120, '') ?: null,
             'payment_terms' => Str::limit($this->clean($doc['pagamento'] ?? ''), 120, '') ?: null,
             'notes' => $notes ?: null,
         ];
